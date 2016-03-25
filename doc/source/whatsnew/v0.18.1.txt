@@ -118,7 +118,7 @@ Performance Improvements
 Bug Fixes
 ~~~~~~~~~
 - ``usecols`` parameter in ``pd.read_csv`` is now respected even when the lines of a CSV file are not even (:issue:`12203`)
-
+- Bug in ``groupby.transform(..)`` when ``axis=1`` is specified with a non-monotonic ordered index (:issue:`12713`)
 - Bug in ``Period`` and ``PeriodIndex`` creation raises ``KeyError`` if ``freq="Minute"`` is specified. Note that "Minute" freq is deprecated in v0.17.0, and recommended to use ``freq="T"`` instead (:issue:`11854`)
 - Bug in printing data which contains ``Period`` with different ``freq`` raises ``ValueError`` (:issue:`12615`)
 - Bug in numpy compatibility of ``np.round()`` on a ``Series`` (:issue:`12600`)
@@ -127,7 +127,7 @@ Bug Fixes
 
 
 
-
+- Bug in ``Timestamp.__repr__`` that caused ``pprint`` to fail in nested structures (:issue:`12622`)
 
 
 
@@ -167,3 +167,4 @@ Bug Fixes
 
 
 - Bug in ``pivot_table`` when ``margins=True`` and ``dropna=True`` where nulls still contributed to margin count (:issue:`12577`)
+- Bug in ``Series.name`` when ``name`` attribute can be a hashable type (:issue:`12610`)
