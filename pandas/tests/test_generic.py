@@ -2226,6 +2226,18 @@ class TestNDFrame(tm.TestCase):
         with tm.assertRaises(ValueError):
             result = wp.pipe((f, 'y'), x=1, y=1)
 
+    def test_drop_datetime_from_multiindex(self):  # 12701
+
+        frame = DataFrame(np.arange(8).reshape(4, 2))
+        frame['id'] = [0, 0, 1, 1]
+        frame['datetime'] = pd.date_range('20160101', periods=4)
+        frame = frame.set_index(['id', 'datetime'])
+
+        expected = frame[:3]
+        frame.drop('20160104', level='datetime')
+
+        assert_frame_equal(frame, expected)
+
 if __name__ == '__main__':
     nose.runmodule(argv=[__file__, '-vvs', '-x', '--pdb', '--pdb-failure'],
                    exit=False)
