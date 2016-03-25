@@ -1883,7 +1883,6 @@ class NDFrame(PandasObject):
                     raise AssertionError('axis must be a MultiIndex')
                 indexer = ~lib.ismember(
                     axis.get_level_values(level).values, set(labels))
-#                indexer = ~axis.get_level_values(level).isin(labels)
             else:
                 indexer = ~axis.isin(labels)
 
