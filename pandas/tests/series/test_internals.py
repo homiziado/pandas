@@ -1,22 +1,22 @@
 # coding=utf-8
 # pylint: disable-msg=E1101,W0612
 
+import pytest
+
 from datetime import datetime
 
 from numpy import nan
 import numpy as np
 
 from pandas import Series
-from pandas.tseries.index import Timestamp
-import pandas.lib as lib
+from pandas.core.indexes.datetimes import Timestamp
+import pandas._libs.lib as lib
 
 from pandas.util.testing import assert_series_equal
 import pandas.util.testing as tm
 
 
 class TestSeriesInternals(tm.TestCase):
-
-    _multiprocess_can_split_ = True
 
     def test_convert_objects(self):
 
@@ -103,7 +103,8 @@ class TestSeriesInternals(tm.TestCase):
         with tm.assert_produces_warning(FutureWarning):
             result = s.convert_objects(convert_dates='coerce',
                                        convert_numeric=False)
-        assert_series_equal(result, s)
+        expected = Series([lib.NaT] * 2 + [Timestamp(1)] * 2)
+        assert_series_equal(result, expected)
 
         # preserver if non-object
         s = Series([1], dtype='float32')
@@ -270,7 +271,7 @@ class TestSeriesInternals(tm.TestCase):
 
         s = Series(['foo', 'bar', 1, 1.0], dtype='O')
         result = s._convert(datetime=True, coerce=True)
-        expected = Series([lib.NaT] * 4)
+        expected = Series([lib.NaT] * 2 + [Timestamp(1)] * 2)
         assert_series_equal(result, expected)
 
         # preserver if non-object
@@ -295,7 +296,7 @@ class TestSeriesInternals(tm.TestCase):
 
     def test_convert_no_arg_error(self):
         s = Series(['1.0', '2'])
-        self.assertRaises(ValueError, s._convert)
+        pytest.raises(ValueError, s._convert)
 
     def test_convert_preserve_bool(self):
         s = Series([1, True, 3, 5], dtype=object)

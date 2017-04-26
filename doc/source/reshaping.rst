@@ -28,7 +28,7 @@ Reshaping by pivoting DataFrame objects
       ...:                 'variable' : np.asarray(frame.columns).repeat(N),
       ...:                 'date' : np.tile(np.asarray(frame.index), K)}
       ...:         columns = ['date', 'variable', 'value']
-      ...:         return DataFrame(data, columns=columns)
+      ...:         return pd.DataFrame(data, columns=columns)
       ...:
 
    In [3]: df = unpivot(tm.makeTimeDataFrame())
@@ -217,7 +217,7 @@ calling ``sort_index``, of course). Here is a more complex example:
                                        ('one', 'two')],
                                       names=['first', 'second'])
    df = pd.DataFrame(np.random.randn(8, 4), index=index, columns=columns)
-   df2 = df.ix[[0, 1, 2, 4, 5, 7]]
+   df2 = df.iloc[[0, 1, 2, 4, 5, 7]]
    df2
 
 As mentioned above, ``stack`` can be called with a ``level`` argument to select
@@ -265,8 +265,8 @@ the right thing:
 Reshaping by Melt
 -----------------
 
-The :func:`~pandas.melt` function is useful to massage a
-DataFrame into a format where one or more columns are identifier variables,
+The top-level :func:``melt` and :func:`~DataFrame.melt` functions are useful to
+massage a DataFrame into a format where one or more columns are identifier variables,
 while all other columns, considered measured variables, are "unpivoted" to the
 row axis, leaving just two non-identifier columns, "variable" and "value". The
 names of those columns can be customized by supplying the ``var_name`` and
@@ -281,10 +281,11 @@ For instance,
                           'height' : [5.5, 6.0],
                           'weight' : [130, 150]})
    cheese
-   pd.melt(cheese, id_vars=['first', 'last'])
-   pd.melt(cheese, id_vars=['first', 'last'], var_name='quantity')
+   cheese.melt(id_vars=['first', 'last'])
+   cheese.melt(id_vars=['first', 'last'], var_name='quantity')
 
-Another way to transform is to use the ``wide_to_long`` panel data convenience function.
+Another way to transform is to use the ``wide_to_long`` panel data convenience
+function.
 
 .. ipython:: python
 
@@ -318,10 +319,14 @@ some very expressive and fast data manipulations.
    df.mean().unstack(0)
 
 
-Pivot tables and cross-tabulations
-----------------------------------
+Pivot tables
+------------
 
 .. _reshaping.pivot:
+
+While ``pivot`` provides general purpose pivoting of DataFrames with various
+data types (strings, numerics, etc.), Pandas also provides the ``pivot_table``
+function for pivoting with aggregation of numeric data.
 
 The function ``pandas.pivot_table`` can be used to create spreadsheet-style pivot
 tables. See the :ref:`cookbook<cookbook.pivot>` for some advanced strategies
@@ -371,7 +376,7 @@ Also, you can use ``Grouper`` for ``index`` and ``columns`` keywords. For detail
 
 .. ipython:: python
 
-   pd.pivot_table(df, values='D', index=Grouper(freq='M', key='F'), columns='C')
+   pd.pivot_table(df, values='D', index=pd.Grouper(freq='M', key='F'), columns='C')
 
 You can render a nice output of the table omitting the missing values by
 calling ``to_string`` if you wish:
@@ -383,8 +388,23 @@ calling ``to_string`` if you wish:
 
 Note that ``pivot_table`` is also available as an instance method on DataFrame.
 
+.. _reshaping.pivot.margins:
+
+Adding margins
+~~~~~~~~~~~~~~
+
+If you pass ``margins=True`` to ``pivot_table``, special ``All`` columns and
+rows will be added with partial group aggregates across the categories on the
+rows and columns:
+
+.. ipython:: python
+
+   df.pivot_table(index=['A', 'B'], columns='C', margins=True, aggfunc=np.std)
+
+.. _reshaping.crosstabulations:
+
 Cross tabulations
-~~~~~~~~~~~~~~~~~
+-----------------
 
 Use the ``crosstab`` function to compute a cross-tabulation of two (or more)
 factors. By default ``crosstab`` computes a frequency table of the factors
@@ -398,10 +418,13 @@ It takes a number of arguments
   the factors
 - ``aggfunc``: function, optional, If no values array is passed, computes a
   frequency table
-- ``rownames``: sequence, default None, must match number of row arrays passed
-- ``colnames``: sequence, default None, if passed, must match number of column
+- ``rownames``: sequence, default ``None``, must match number of row arrays passed
+- ``colnames``: sequence, default ``None``, if passed, must match number of column
   arrays passed
-- ``margins``: boolean, default False, Add row/column margins (subtotals)
+- ``margins``: boolean, default ``False``, Add row/column margins (subtotals)
+- ``normalize``: boolean, {'all', 'index', 'columns'}, or {0,1}, default ``False``.
+  Normalize by dividing all values by the sum of values.
+
 
 Any Series passed will have their name attributes used unless row or column
 names for the cross-tabulation are specified
@@ -416,25 +439,68 @@ For example:
     c = np.array([dull, dull, shiny, dull, dull, shiny], dtype=object)
     pd.crosstab(a, [b, c], rownames=['a'], colnames=['b', 'c'])
 
-.. _reshaping.pivot.margins:
 
-Adding margins (partial aggregates)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-If you pass ``margins=True`` to ``pivot_table``, special ``All`` columns and
-rows will be added with partial group aggregates across the categories on the
-rows and columns:
+If ``crosstab`` receives only two Series, it will provide a frequency table.
 
 .. ipython:: python
 
-   df.pivot_table(index=['A', 'B'], columns='C', margins=True, aggfunc=np.std)
+    df = pd.DataFrame({'A': [1, 2, 2, 2, 2], 'B': [3, 3, 4, 4, 4],
+                       'C': [1, 1, np.nan, 1, 1]})
+    df
+
+    pd.crosstab(df.A, df.B)
+
+Any input passed containing ``Categorical`` data will have **all** of its
+categories included in the cross-tabulation, even if the actual data does
+not contain any instances of a particular category.
+
+.. ipython:: python
+
+    foo = pd.Categorical(['a', 'b'], categories=['a', 'b', 'c'])
+    bar = pd.Categorical(['d', 'e'], categories=['d', 'e', 'f'])
+    pd.crosstab(foo, bar)
+
+Normalization
+~~~~~~~~~~~~~
+
+.. versionadded:: 0.18.1
+
+Frequency tables can also be normalized to show percentages rather than counts
+using the ``normalize`` argument:
+
+.. ipython:: python
+
+   pd.crosstab(df.A, df.B, normalize=True)
+
+``normalize`` can also normalize values within each row or within each column:
+
+.. ipython:: python
+
+   pd.crosstab(df.A, df.B, normalize='columns')
+
+``crosstab`` can also be passed a third Series and an aggregation function
+(``aggfunc``) that will be applied to the values of the third Series within each
+group defined by the first two Series:
+
+.. ipython:: python
+
+   pd.crosstab(df.A, df.B, values=df.C, aggfunc=np.sum)
+
+Adding Margins
+~~~~~~~~~~~~~~
+
+Finally, one can also add margins or normalize this output.
+
+.. ipython:: python
+
+   pd.crosstab(df.A, df.B, values=df.C, aggfunc=np.sum, normalize=True,
+               margins=True)
 
 .. _reshaping.tile:
+.. _reshaping.tile.cut:
 
 Tiling
 ------
-
-.. _reshaping.tile.cut:
 
 The ``cut`` function computes groupings for the values of the input array and
 is often used to transform continuous variables to discrete or categorical
@@ -444,7 +510,6 @@ variables:
 
    ages = np.array([10, 15, 13, 12, 23, 25, 28, 59, 60])
 
-
    pd.cut(ages, bins=3)
 
 If the ``bins`` keyword is an integer, then equal-width bins are formed.
@@ -452,7 +517,15 @@ Alternatively we can specify custom bin-edges:
 
 .. ipython:: python
 
-   pd.cut(ages, bins=[0, 18, 35, 70])
+   c = pd.cut(ages, bins=[0, 18, 35, 70])
+   c
+
+.. versionadded:: 0.20.0
+
+If the ``bins`` keyword is an ``IntervalIndex``, then these will be
+used to bin the passed data.
+
+   pd.cut([25, 20, 50], bins=c.categories)
 
 
 .. _reshaping.dummies:
@@ -586,10 +659,16 @@ handling of NaN:
    because of an ordering bug. See also
    `Here <https://github.com/numpy/numpy/issues/641>`__
 
-.. ipython:: python
+.. code-block:: ipython
 
-   pd.factorize(x, sort=True)
-   np.unique(x, return_inverse=True)[::-1]
+    In [2]: pd.factorize(x, sort=True)
+    Out[2]:
+    (array([ 2,  2, -1,  3,  0,  1]),
+     Index([3.14, inf, u'A', u'B'], dtype='object'))
+
+    In [3]: np.unique(x, return_inverse=True)[::-1]
+    Out[3]: (array([3, 3, 0, 4, 1, 2]), array([nan, 3.14, inf, 'A', 'B'], dtype=object))
+
 
 .. note::
     If you just want to handle one column as a categorical variable (like R's factor),

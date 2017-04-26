@@ -12,13 +12,16 @@ from distutils.version import LooseVersion
 
 import numpy as np
 
-from pandas.io.common import _is_url, urlopen, parse_url, _validate_header_arg
+from pandas.core.dtypes.common import is_list_like
+from pandas.errors import EmptyDataError
+from pandas.io.common import (_is_url, urlopen,
+                              parse_url, _validate_header_arg)
 from pandas.io.parsers import TextParser
 from pandas.compat import (lrange, lmap, u, string_types, iteritems,
                            raise_with_traceback, binary_type)
-from pandas.core import common as com
 from pandas import Series
 from pandas.core.common import AbstractMethodError
+from pandas.io.formats.printing import pprint_thing
 
 _IMPORTS = False
 _HAS_BS4 = False
@@ -105,7 +108,7 @@ def _get_skiprows(skiprows):
     """
     if isinstance(skiprows, slice):
         return lrange(skiprows.start or 0, skiprows.stop, skiprows.step or 1)
-    elif isinstance(skiprows, numbers.Integral) or com.is_list_like(skiprows):
+    elif isinstance(skiprows, numbers.Integral) or is_list_like(skiprows):
         return skiprows
     elif skiprows is None:
         return 0
@@ -353,15 +356,20 @@ class _HtmlFrameParser(object):
         thead = self._parse_thead(table)
         res = []
         if thead:
-            res = lmap(self._text_getter, self._parse_th(thead[0]))
-        return np.array(res).squeeze() if res and len(res) == 1 else res
+            trs = self._parse_tr(thead[0])
+            for tr in trs:
+                cols = lmap(self._text_getter, self._parse_td(tr))
+                if any([col != '' for col in cols]):
+                    res.append(cols)
+        return res
 
     def _parse_raw_tfoot(self, table):
         tfoot = self._parse_tfoot(table)
         res = []
         if tfoot:
             res = lmap(self._text_getter, self._parse_td(tfoot[0]))
-        return np.array(res).squeeze() if res and len(res) == 1 else res
+        return np.atleast_1d(
+            np.array(res).squeeze()) if res and len(res) == 1 else res
 
     def _parse_raw_tbody(self, table):
         tbody = self._parse_tbody(table)
@@ -587,9 +595,17 @@ class _LxmlFrameParser(_HtmlFrameParser):
         return table.xpath('.//tfoot')
 
     def _parse_raw_thead(self, table):
-        expr = './/thead//th'
-        return [_remove_whitespace(x.text_content()) for x in
-                table.xpath(expr)]
+        expr = './/thead'
+        thead = table.xpath(expr)
+        res = []
+        if thead:
+            trs = self._parse_tr(thead[0])
+            for tr in trs:
+                cols = [_remove_whitespace(x.text_content()) for x in
+                        self._parse_td(tr)]
+                if any([col != '' for col in cols]):
+                    res.append(cols)
+        return res
 
     def _parse_raw_tfoot(self, table):
         expr = './/tfoot//th|//tfoot//td'
@@ -607,26 +623,22 @@ def _expand_elements(body):
         body[ind] += empty * (lens_max - length)
 
 
-def _data_to_frame(data, header, index_col, skiprows,
-                   parse_dates, tupleize_cols, thousands):
-    head, body, foot = data
-
+def _data_to_frame(**kwargs):
+    head, body, foot = kwargs.pop('data')
+    header = kwargs.pop('header')
+    kwargs['skiprows'] = _get_skiprows(kwargs['skiprows'])
     if head:
-        body = [head] + body
-
+        rows = lrange(len(head))
+        body = head + body
         if header is None:  # special case when a table has <th> elements
-            header = 0
+            header = 0 if rows == [0] else rows
 
     if foot:
         body += [foot]
 
     # fill out elements of body that are "ragged"
     _expand_elements(body)
-
-    tp = TextParser(body, header=header, index_col=index_col,
-                    skiprows=_get_skiprows(skiprows),
-                    parse_dates=parse_dates, tupleize_cols=tupleize_cols,
-                    thousands=thousands)
+    tp = TextParser(body, header=header, **kwargs)
     df = tp.read()
     return df
 
@@ -683,7 +695,7 @@ def _parser_dispatch(flavor):
 
 
 def _print_as_set(s):
-    return '{%s}' % ', '.join([com.pprint_thing(el) for el in s])
+    return '{%s}' % ', '.join([pprint_thing(el) for el in s])
 
 
 def _validate_flavor(flavor):
@@ -711,8 +723,7 @@ def _validate_flavor(flavor):
     return flavor
 
 
-def _parse(flavor, io, match, header, index_col, skiprows,
-           parse_dates, tupleize_cols, thousands, attrs, encoding):
+def _parse(flavor, io, match, attrs, encoding, **kwargs):
     flavor = _validate_flavor(flavor)
     compiled_match = re.compile(match)  # you can pass a compiled regex here
 
@@ -734,21 +745,17 @@ def _parse(flavor, io, match, header, index_col, skiprows,
     ret = []
     for table in tables:
         try:
-            ret.append(_data_to_frame(data=table,
-                                      header=header,
-                                      index_col=index_col,
-                                      skiprows=skiprows,
-                                      parse_dates=parse_dates,
-                                      tupleize_cols=tupleize_cols,
-                                      thousands=thousands))
-        except StopIteration:  # empty table
+            ret.append(_data_to_frame(data=table, **kwargs))
+        except EmptyDataError:  # empty table
             continue
     return ret
 
 
 def read_html(io, match='.+', flavor=None, header=None, index_col=None,
               skiprows=None, attrs=None, parse_dates=False,
-              tupleize_cols=False, thousands=',', encoding=None):
+              tupleize_cols=False, thousands=',', encoding=None,
+              decimal='.', converters=None, na_values=None,
+              keep_default_na=True):
     r"""Read HTML tables into a ``list`` of ``DataFrame`` objects.
 
     Parameters
@@ -824,6 +831,31 @@ def read_html(io, match='.+', flavor=None, header=None, index_col=None,
         underlying parser library (e.g., the parser library will try to use
         the encoding provided by the document).
 
+    decimal : str, default '.'
+        Character to recognize as decimal point (e.g. use ',' for European
+        data).
+
+        .. versionadded:: 0.19.0
+
+    converters : dict, default None
+        Dict of functions for converting values in certain columns. Keys can
+        either be integers or column labels, values are functions that take one
+        input argument, the cell (not column) content, and return the
+        transformed content.
+
+        .. versionadded:: 0.19.0
+
+    na_values : iterable, default None
+        Custom NA values
+
+        .. versionadded:: 0.19.0
+
+    keep_default_na : bool, default True
+        If na_values are specified and keep_default_na is False the default NaN
+        values are overridden, otherwise they're appended to
+
+        .. versionadded:: 0.19.0
+
     Returns
     -------
     dfs : list of DataFrames
@@ -831,7 +863,7 @@ def read_html(io, match='.+', flavor=None, header=None, index_col=None,
     Notes
     -----
     Before using this function you should read the :ref:`gotchas about the
-    HTML parsing libraries <html-gotchas>`.
+    HTML parsing libraries <io.html.gotchas>`.
 
     Expect to do some cleanup after you call this function. For example, you
     might need to manually assign column names if the column names are
@@ -866,5 +898,9 @@ def read_html(io, match='.+', flavor=None, header=None, index_col=None,
         raise ValueError('cannot skip rows starting from the end of the '
                          'data (you passed a negative value)')
     _validate_header_arg(header)
-    return _parse(flavor, io, match, header, index_col, skiprows,
-                  parse_dates, tupleize_cols, thousands, attrs, encoding)
+    return _parse(flavor=flavor, io=io, match=match, header=header,
+                  index_col=index_col, skiprows=skiprows,
+                  parse_dates=parse_dates, tupleize_cols=tupleize_cols,
+                  thousands=thousands, attrs=attrs, encoding=encoding,
+                  decimal=decimal, converters=converters, na_values=na_values,
+                  keep_default_na=keep_default_na)

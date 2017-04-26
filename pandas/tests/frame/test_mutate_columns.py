@@ -1,15 +1,13 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import print_function
-
+import pytest
 from pandas.compat import range, lrange
 import numpy as np
 
-from pandas import DataFrame, Series
+from pandas import DataFrame, Series, Index, MultiIndex
 
-from pandas.util.testing import (assert_series_equal,
-                                 assert_frame_equal,
-                                 assertRaisesRegexp)
+from pandas.util.testing import assert_frame_equal
 
 import pandas.util.testing as tm
 
@@ -20,8 +18,6 @@ from pandas.tests.frame.common import TestData
 
 
 class TestDataFrameMutateColumns(tm.TestCase, TestData):
-
-    _multiprocess_can_split_ = True
 
     def test_assign(self):
         df = DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
@@ -78,13 +74,13 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
     def test_assign_bad(self):
         df = DataFrame({'A': [1, 2, 3], 'B': [4, 5, 6]})
         # non-keyword argument
-        with tm.assertRaises(TypeError):
+        with pytest.raises(TypeError):
             df.assign(lambda x: x.A)
-        with tm.assertRaises(AttributeError):
+        with pytest.raises(AttributeError):
             df.assign(C=df.A, D=df.A + df.C)
-        with tm.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             df.assign(C=lambda df: df.A, D=lambda df: df['A'] + df['C'])
-        with tm.assertRaises(KeyError):
+        with pytest.raises(KeyError):
             df.assign(C=df.A, D=lambda x: x['A'] + x['C'])
 
     def test_insert_error_msmgs(self):
@@ -95,7 +91,7 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
         s = DataFrame({'foo': ['a', 'b', 'c', 'a'], 'fiz': [
                       'g', 'h', 'i', 'j']}).set_index('foo')
         msg = 'cannot reindex from a duplicate axis'
-        with assertRaisesRegexp(ValueError, msg):
+        with tm.assert_raises_regex(ValueError, msg):
             df['newcol'] = s
 
         # GH 4107, more descriptive error message
@@ -103,7 +99,7 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
                        columns=['a', 'b', 'c', 'd'])
 
         msg = 'incompatible index of inserted column with frame index'
-        with assertRaisesRegexp(TypeError, msg):
+        with tm.assert_raises_regex(TypeError, msg):
             df['gr'] = df.groupby(['b', 'c']).count()
 
     def test_insert_benchmark(self):
@@ -123,12 +119,12 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
                        columns=['c', 'b', 'a'])
 
         df.insert(0, 'foo', df['a'])
-        self.assert_numpy_array_equal(df.columns, ['foo', 'c', 'b', 'a'])
+        tm.assert_index_equal(df.columns, Index(['foo', 'c', 'b', 'a']))
         tm.assert_series_equal(df['a'], df['foo'], check_names=False)
 
         df.insert(2, 'bar', df['c'])
-        self.assert_numpy_array_equal(df.columns,
-                                      ['foo', 'c', 'bar', 'b', 'a'])
+        tm.assert_index_equal(df.columns,
+                              Index(['foo', 'c', 'bar', 'b', 'a']))
         tm.assert_almost_equal(df['c'], df['bar'], check_names=False)
 
         # diff dtype
@@ -147,32 +143,63 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
         result = Series(dict(float64=4, float32=2, int32=1))
         self.assertTrue((df.get_dtype_counts() == result).all())
 
-        with assertRaisesRegexp(ValueError, 'already exists'):
+        with tm.assert_raises_regex(ValueError, 'already exists'):
             df.insert(1, 'a', df['b'])
-        self.assertRaises(ValueError, df.insert, 1, 'c', df['b'])
+        pytest.raises(ValueError, df.insert, 1, 'c', df['b'])
 
         df.columns.name = 'some_name'
         # preserve columns name field
         df.insert(0, 'baz', df['c'])
         self.assertEqual(df.columns.name, 'some_name')
 
+        # GH 13522
+        df = DataFrame(index=['A', 'B', 'C'])
+        df['X'] = df.index
+        df['X'] = ['x', 'y', 'z']
+        exp = DataFrame(data={'X': ['x', 'y', 'z']}, index=['A', 'B', 'C'])
+        assert_frame_equal(df, exp)
+
     def test_delitem(self):
         del self.frame['A']
-        self.assertNotIn('A', self.frame)
+        assert 'A' not in self.frame
+
+    def test_delitem_multiindex(self):
+        midx = MultiIndex.from_product([['A', 'B'], [1, 2]])
+        df = DataFrame(np.random.randn(4, 4), columns=midx)
+        assert len(df.columns) == 4
+        assert ('A', ) in df.columns
+        assert 'A' in df.columns
+
+        result = df['A']
+        assert isinstance(result, DataFrame)
+        del df['A']
+
+        assert len(df.columns) == 2
+
+        # A still in the levels, BUT get a KeyError if trying
+        # to delete
+        assert ('A', ) not in df.columns
+        with pytest.raises(KeyError):
+            del df[('A',)]
+
+        # xref: https://github.com/pandas-dev/pandas/issues/2770
+        # the 'A' is STILL in the columns!
+        assert 'A' in df.columns
+        with pytest.raises(KeyError):
+            del df['A']
 
     def test_pop(self):
         self.frame.columns.name = 'baz'
 
         self.frame.pop('A')
-        self.assertNotIn('A', self.frame)
+        assert 'A' not in self.frame
 
         self.frame['foo'] = 'bar'
         self.frame.pop('foo')
-        self.assertNotIn('foo', self.frame)
+        assert 'foo' not in self.frame
         # TODO self.assertEqual(self.frame.columns.name, 'baz')
 
-        # 10912
-        # inplace ops cause caching issue
+        # gh-10912: inplace ops cause caching issue
         a = DataFrame([[1, 2, 3], [4, 5, 6]], columns=[
                       'A', 'B', 'C'], index=['X', 'Y'])
         b = a.pop('B')
@@ -181,11 +208,11 @@ class TestDataFrameMutateColumns(tm.TestCase, TestData):
         # original frame
         expected = DataFrame([[1, 3], [4, 6]], columns=[
                              'A', 'C'], index=['X', 'Y'])
-        assert_frame_equal(a, expected)
+        tm.assert_frame_equal(a, expected)
 
         # result
         expected = Series([2, 5], index=['X', 'Y'], name='B') + 1
-        assert_series_equal(b, expected)
+        tm.assert_series_equal(b, expected)
 
     def test_pop_non_unique_cols(self):
         df = DataFrame({0: [0, 1], 1: [0, 1], 2: [4, 5]})

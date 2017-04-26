@@ -81,7 +81,9 @@ have ``sphinx`` and ``ipython`` installed. `numpydoc
 <https://github.com/numpy/numpydoc>`_ is used to parse the docstrings that
 follow the Numpy Docstring Standard (see above), but you don't need to install
 this because a local copy of ``numpydoc`` is included in the pandas source
-code.
+code. `nbsphinx <https://nbsphinx.readthedocs.io/>`_ is used to convert
+Jupyter notebooks. You will need to install it if you intend to modify any of
+the notebooks included in the documentation.
 
 Furthermore, it is recommended to have all `optional dependencies
 <http://pandas.pydata.org/pandas-docs/dev/install.html#optional-dependencies>`_
@@ -155,12 +157,12 @@ Where to start?
 ---------------
 
 There are a number of issues listed under `Docs
-<https://github.com/pydata/pandas/issues?labels=Docs&sort=updated&state=open>`_
+<https://github.com/pandas-dev/pandas/issues?labels=Docs&sort=updated&state=open>`_
 and `Good as first PR
-<https://github.com/pydata/pandas/issues?labels=Good+as+first+PR&sort=updated&state=open>`_
+<https://github.com/pandas-dev/pandas/issues?labels=Good+as+first+PR&sort=updated&state=open>`_
 where you could start out.
 
-Or maybe you have an idea of you own, by using pandas, looking for something
+Or maybe you have an idea of your own, by using pandas, looking for something
 in the documentation and thinking 'this can be improved', let's do something
 about that!
 

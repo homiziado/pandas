@@ -15,7 +15,7 @@ import pandas.core.config as cf
 from pandas.core.config import (is_int, is_bool, is_text, is_instance_factory,
                                 is_one_of_factory, get_default_val,
                                 is_callable)
-from pandas.core.format import detect_console_encoding
+from pandas.io.formats.format import detect_console_encoding
 
 #
 # options from the "display" namespace
@@ -110,7 +110,7 @@ float_format_doc = """
     The callable should accept a floating point number and return
     a string with the desired format of the number. This is used
     in some places like SeriesFormatter.
-    See core.format.EngFormatter for an example.
+    See formats.format.EngFormatter for an example.
 """
 
 max_colwidth_doc = """
@@ -161,6 +161,13 @@ pc_latex_repr_doc = """
 : boolean
     Whether to produce a latex DataFrame representation for jupyter
     environments that support it.
+    (default: False)
+"""
+
+pc_table_schema_doc = """
+: boolean
+    Whether to publish a Table Schema representation for frontends
+    that support it.
     (default: False)
 """
 
@@ -239,14 +246,35 @@ pc_latex_escape = """
 : bool
     This specifies if the to_latex method of a Dataframe uses escapes special
     characters.
-    method. Valid values: False,True
+    Valid values: False,True
 """
 
 pc_latex_longtable = """
 :bool
     This specifies if the to_latex method of a Dataframe uses the longtable
     format.
-    method. Valid values: False,True
+    Valid values: False,True
+"""
+
+pc_latex_multicolumn = """
+: bool
+    This specifies if the to_latex method of a Dataframe uses multicolumns
+    to pretty-print MultiIndex columns.
+    Valid values: False,True
+"""
+
+pc_latex_multicolumn_format = """
+: string
+    This specifies the format for multicolumn headers.
+    Can be surrounded with '|'.
+    Valid values: 'l', 'c', 'r', 'p{<width>}'
+"""
+
+pc_latex_multirow = """
+: bool
+    This specifies if the to_latex method of a Dataframe uses multirows
+    to pretty-print MultiIndex rows.
+    Valid values: False,True
 """
 
 style_backup = dict()
@@ -257,7 +285,7 @@ def mpl_style_cb(key):
                   stacklevel=5)
 
     import sys
-    from pandas.tools.plotting import mpl_stylesheet
+    from pandas.plotting._style import mpl_stylesheet
     global style_backup
 
     val = cf.get_option(key)
@@ -277,6 +305,7 @@ def mpl_style_cb(key):
             plt.rcParams.update(style_backup)
 
     return val
+
 
 with cf.config_prefix('display'):
     cf.register_option('precision', 6, pc_precision_doc, validator=is_int)
@@ -338,6 +367,15 @@ with cf.config_prefix('display'):
                        validator=is_bool)
     cf.register_option('latex.longtable', False, pc_latex_longtable,
                        validator=is_bool)
+    cf.register_option('latex.multicolumn', True, pc_latex_multicolumn,
+                       validator=is_bool)
+    cf.register_option('latex.multicolumn_format', 'l', pc_latex_multicolumn,
+                       validator=is_text)
+    cf.register_option('latex.multirow', False, pc_latex_multirow,
+                       validator=is_bool)
+    cf.register_option('html.table_schema', False, pc_table_schema_doc,
+                       validator=is_bool)
+
 
 cf.deprecate_option('display.line_width',
                     msg=pc_line_width_deprecation_warning,
@@ -345,6 +383,17 @@ cf.deprecate_option('display.line_width',
 
 cf.deprecate_option('display.height', msg=pc_height_deprecation_warning,
                     rkey='display.max_rows')
+
+pc_html_border_doc = """
+: int
+    A ``border=value`` attribute is inserted in the ``<table>`` tag
+    for the DataFrame HTML repr.
+"""
+
+with cf.config_prefix('html'):
+    cf.register_option('border', 1, pc_html_border_doc,
+                       validator=is_int)
+
 
 tc_sim_interactive_doc = """
 : boolean
@@ -366,8 +415,9 @@ use_inf_as_null_doc = """
 
 
 def use_inf_as_null_cb(key):
-    from pandas.core.common import _use_inf_as_null
+    from pandas.core.dtypes.missing import _use_inf_as_null
     _use_inf_as_null(key)
+
 
 with cf.config_prefix('mode'):
     cf.register_option('use_inf_as_null', False, use_inf_as_null_doc,

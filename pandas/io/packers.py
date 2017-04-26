@@ -47,23 +47,25 @@ import warnings
 import numpy as np
 from pandas import compat
 from pandas.compat import u, u_safe
+
+from pandas.core.dtypes.common import (
+    is_categorical_dtype, is_object_dtype,
+    needs_i8_conversion, pandas_dtype)
+
 from pandas import (Timestamp, Period, Series, DataFrame,  # noqa
                     Index, MultiIndex, Float64Index, Int64Index,
-                    Panel, RangeIndex, PeriodIndex, DatetimeIndex, NaT)
-from pandas.tslib import NaTType
-from pandas.sparse.api import SparseSeries, SparseDataFrame, SparsePanel
-from pandas.sparse.array import BlockIndex, IntIndex
+                    Panel, RangeIndex, PeriodIndex, DatetimeIndex, NaT,
+                    Categorical, CategoricalIndex)
+from pandas._libs.tslib import NaTType
+from pandas.core.sparse.api import SparseSeries, SparseDataFrame
+from pandas.core.sparse.array import BlockIndex, IntIndex
 from pandas.core.generic import NDFrame
-from pandas.core.common import (
-    PerformanceWarning,
-    needs_i8_conversion,
-    pandas_dtype,
-)
+from pandas.errors import PerformanceWarning
 from pandas.io.common import get_filepath_or_buffer
-from pandas.core.internals import BlockManager, make_block
+from pandas.core.internals import BlockManager, make_block, _safe_reshape
 import pandas.core.internals as internals
 
-from pandas.msgpack import Unpacker as _Unpacker, Packer as _Packer, ExtType
+from pandas.io.msgpack import Unpacker as _Unpacker, Packer as _Packer, ExtType
 from pandas.util._move import (
     BadMove as _BadMove,
     move_into_mutable_buffer as _move_into_mutable_buffer,
@@ -216,6 +218,7 @@ def read_msgpack(path_or_buf, encoding='utf-8', iterator=False, **kwargs):
 
     raise ValueError('path_or_buf needs to be a string file path or file-like')
 
+
 dtype_dict = {21: np.dtype('M8[ns]'),
               u('datetime64[ns]'): np.dtype('M8[ns]'),
               u('datetime64[us]'): np.dtype('M8[us]'),
@@ -226,6 +229,7 @@ dtype_dict = {21: np.dtype('M8[ns]'),
               # this is platform int, which we need to remap to np.int64
               # for compat on windows platforms
               7: np.dtype('int64'),
+              'category': 'category'
               }
 
 
@@ -234,6 +238,7 @@ def dtype_for(t):
     if t in dtype_dict:
         return dtype_dict[t]
     return np.typeDict.get(t, t)
+
 
 c2f_dict = {'complex': np.float64,
             'complex128': np.float64,
@@ -257,13 +262,16 @@ def convert(values):
     """ convert the numpy values to a list """
 
     dtype = values.dtype
+
+    if is_categorical_dtype(values):
+        return values
+
+    elif is_object_dtype(dtype):
+        return values.ravel().tolist()
+
     if needs_i8_conversion(dtype):
         values = values.view('i8')
     v = values.ravel()
-
-    # convert object
-    if dtype == np.object_:
-        return v.tolist()
 
     if compressor == 'zlib':
         _check_zlib()
@@ -298,7 +306,10 @@ def unconvert(values, dtype, compress=None):
     if as_is_ext:
         values = values.data
 
-    if dtype == np.object_:
+    if is_categorical_dtype(dtype):
+        return values
+
+    elif is_object_dtype(dtype):
         return np.array(values, dtype=object)
 
     dtype = pandas_dtype(dtype).base
@@ -393,6 +404,16 @@ def encode(obj):
                     u'dtype': u(obj.dtype.name),
                     u'data': convert(obj.values),
                     u'compress': compressor}
+
+    elif isinstance(obj, Categorical):
+        return {u'typ': u'category',
+                u'klass': u(obj.__class__.__name__),
+                u'name': getattr(obj, 'name', None),
+                u'codes': obj.codes,
+                u'categories': obj.categories,
+                u'ordered': obj.ordered,
+                u'compress': compressor}
+
     elif isinstance(obj, Series):
         if isinstance(obj, SparseSeries):
             raise NotImplementedError(
@@ -429,18 +450,6 @@ def encode(obj):
             # d['data'] = dict([(name, ss)
             #                 for name, ss in compat.iteritems(obj)])
             # return d
-        elif isinstance(obj, SparsePanel):
-            raise NotImplementedError(
-                'msgpack sparse frame is not implemented'
-            )
-            # d = {'typ': 'sparse_panel',
-            #     'klass': obj.__class__.__name__,
-            #     'items': obj.items}
-            # for f in ['default_fill_value', 'default_kind']:
-            #    d[f] = getattr(obj, f, None)
-            # d['data'] = dict([(name, df)
-            #                 for name, df in compat.iteritems(obj)])
-            # return d
         else:
 
             data = obj._data
@@ -465,12 +474,12 @@ def encode(obj):
             tz = obj.tzinfo
             if tz is not None:
                 tz = u(tz.zone)
-            offset = obj.offset
-            if offset is not None:
-                offset = u(offset.freqstr)
+            freq = obj.freq
+            if freq is not None:
+                freq = u(freq.freqstr)
             return {u'typ': u'timestamp',
                     u'value': obj.value,
-                    u'offset': offset,
+                    u'freq': freq,
                     u'tz': tz}
         if isinstance(obj, NaTType):
             return {u'typ': u'nat'}
@@ -540,7 +549,8 @@ def decode(obj):
     if typ is None:
         return obj
     elif typ == u'timestamp':
-        return Timestamp(obj[u'value'], tz=obj[u'tz'], offset=obj[u'offset'])
+        freq = obj[u'freq'] if 'freq' in obj else obj[u'offset']
+        return Timestamp(obj[u'value'], tz=obj[u'tz'], freq=freq)
     elif typ == u'nat':
         return NaT
     elif typ == u'period':
@@ -564,7 +574,7 @@ def decode(obj):
     elif typ == u'period_index':
         data = unconvert(obj[u'data'], np.int64, obj.get(u'compress'))
         d = dict(name=obj[u'name'], freq=obj[u'freq'])
-        return globals()[obj[u'klass']](data, **d)
+        return globals()[obj[u'klass']]._from_ordinals(data, **d)
     elif typ == u'datetime_index':
         data = unconvert(obj[u'data'], np.int64, obj.get(u'compress'))
         d = dict(name=obj[u'name'], freq=obj[u'freq'], verify_integrity=False)
@@ -576,27 +586,31 @@ def decode(obj):
             result = result.tz_localize('UTC').tz_convert(tz)
         return result
 
+    elif typ == u'category':
+        from_codes = globals()[obj[u'klass']].from_codes
+        return from_codes(codes=obj[u'codes'],
+                          categories=obj[u'categories'],
+                          ordered=obj[u'ordered'])
+
     elif typ == u'series':
         dtype = dtype_for(obj[u'dtype'])
         pd_dtype = pandas_dtype(dtype)
-        np_dtype = pandas_dtype(dtype).base
+
         index = obj[u'index']
         result = globals()[obj[u'klass']](unconvert(obj[u'data'], dtype,
                                                     obj[u'compress']),
                                           index=index,
-                                          dtype=np_dtype,
+                                          dtype=pd_dtype,
                                           name=obj[u'name'])
-        tz = getattr(pd_dtype, 'tz', None)
-        if tz:
-            result = result.dt.tz_localize('UTC').dt.tz_convert(tz)
         return result
 
     elif typ == u'block_manager':
         axes = obj[u'axes']
 
         def create_block(b):
-            values = unconvert(b[u'values'], dtype_for(b[u'dtype']),
-                               b[u'compress']).reshape(b[u'shape'])
+            values = _safe_reshape(unconvert(
+                b[u'values'], dtype_for(b[u'dtype']),
+                b[u'compress']), b[u'shape'])
 
             # locs handles duplicate column names, and should be used instead
             # of items; see GH 9618

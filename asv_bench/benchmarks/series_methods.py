@@ -8,11 +8,26 @@ class series_constructor_no_data_datetime_index(object):
         self.dr = pd.date_range(
             start=datetime(2015,10,26),
             end=datetime(2016,1,1),
-            freq='10s'
-        )  # ~500k long
+            freq='50s'
+        )  # ~100k long
 
     def time_series_constructor_no_data_datetime_index(self):
         Series(data=None, index=self.dr)
+
+
+class series_constructor_dict_data_datetime_index(object):
+    goal_time = 0.2
+
+    def setup(self):
+        self.dr = pd.date_range(
+            start=datetime(2015, 10, 26),
+            end=datetime(2016, 1, 1),
+            freq='50s'
+        )  # ~100k long
+        self.data = {d: v for d, v in zip(self.dr, range(len(self.dr)))}
+
+    def time_series_constructor_no_data_datetime_index(self):
+        Series(data=self.data, index=self.dr)
 
 
 class series_isin_int64(object):
@@ -53,8 +68,8 @@ class series_nlargest1(object):
         self.s4 = self.s3.astype('object')
 
     def time_series_nlargest1(self):
-        self.s1.nlargest(3, take_last=True)
-        self.s1.nlargest(3, take_last=False)
+        self.s1.nlargest(3, keep='last')
+        self.s1.nlargest(3, keep='first')
 
 
 class series_nlargest2(object):
@@ -68,8 +83,8 @@ class series_nlargest2(object):
         self.s4 = self.s3.astype('object')
 
     def time_series_nlargest2(self):
-        self.s2.nlargest(3, take_last=True)
-        self.s2.nlargest(3, take_last=False)
+        self.s2.nlargest(3, keep='last')
+        self.s2.nlargest(3, keep='first')
 
 
 class series_nsmallest2(object):
@@ -83,8 +98,8 @@ class series_nsmallest2(object):
         self.s4 = self.s3.astype('object')
 
     def time_series_nsmallest2(self):
-        self.s2.nsmallest(3, take_last=True)
-        self.s2.nsmallest(3, take_last=False)
+        self.s2.nsmallest(3, keep='last')
+        self.s2.nsmallest(3, keep='first')
 
 
 class series_dropna_int64(object):

@@ -8,7 +8,7 @@ import pandas as pd
 
 from pandas import Series, DataFrame
 
-from pandas.compat import StringIO, u
+from pandas.compat import StringIO, u, long
 from pandas.util.testing import (assert_series_equal, assert_almost_equal,
                                  assert_frame_equal, ensure_clean)
 import pandas.util.testing as tm
@@ -16,9 +16,7 @@ import pandas.util.testing as tm
 from .common import TestData
 
 
-class TestSeriesIO(TestData, tm.TestCase):
-
-    _multiprocess_can_split_ = True
+class TestSeriesToCSV(TestData, tm.TestCase):
 
     def test_from_csv(self):
 
@@ -36,8 +34,8 @@ class TestSeriesIO(TestData, tm.TestCase):
 
             self.series.to_csv(path)
             series = Series.from_csv(path)
-            self.assertIsNone(series.name)
-            self.assertIsNone(series.index.name)
+            assert series.name is None
+            assert series.index.name is None
             assert_series_equal(self.series, series, check_names=False)
             self.assertTrue(series.name is None)
             self.assertTrue(series.index.name is None)
@@ -64,7 +62,8 @@ class TestSeriesIO(TestData, tm.TestCase):
         with ensure_clean() as path:
             self.ts.to_csv(path)
 
-            lines = io.open(path, newline=None).readlines()
+            with io.open(path, newline=None) as f:
+                lines = f.readlines()
             assert (lines[1] != '\n')
 
             self.ts.to_csv(path, index=False)
@@ -81,35 +80,6 @@ class TestSeriesIO(TestData, tm.TestCase):
         s2 = Series.from_csv(buf, index_col=0, encoding='UTF-8')
 
         assert_series_equal(s, s2)
-
-    def test_tolist(self):
-        rs = self.ts.tolist()
-        xp = self.ts.values.tolist()
-        assert_almost_equal(rs, xp)
-
-        # datetime64
-        s = Series(self.ts.index)
-        rs = s.tolist()
-        self.assertEqual(self.ts.index[0], rs[0])
-
-    def test_to_frame(self):
-        self.ts.name = None
-        rs = self.ts.to_frame()
-        xp = pd.DataFrame(self.ts.values, index=self.ts.index)
-        assert_frame_equal(rs, xp)
-
-        self.ts.name = 'testname'
-        rs = self.ts.to_frame()
-        xp = pd.DataFrame(dict(testname=self.ts.values), index=self.ts.index)
-        assert_frame_equal(rs, xp)
-
-        rs = self.ts.to_frame(name='testdifferent')
-        xp = pd.DataFrame(
-            dict(testdifferent=self.ts.values), index=self.ts.index)
-        assert_frame_equal(rs, xp)
-
-    def test_to_dict(self):
-        self.assert_numpy_array_equal(Series(self.ts.to_dict()), self.ts)
 
     def test_to_csv_float_format(self):
 
@@ -135,14 +105,36 @@ class TestSeriesIO(TestData, tm.TestCase):
         # DataFrame.to_csv() which returned string
         s = Series([1, 2, 3])
         csv_str = s.to_csv(path=None)
-        self.assertIsInstance(csv_str, str)
+        assert isinstance(csv_str, str)
+
+
+class TestSeriesIO(TestData, tm.TestCase):
+
+    def test_to_frame(self):
+        self.ts.name = None
+        rs = self.ts.to_frame()
+        xp = pd.DataFrame(self.ts.values, index=self.ts.index)
+        assert_frame_equal(rs, xp)
+
+        self.ts.name = 'testname'
+        rs = self.ts.to_frame()
+        xp = pd.DataFrame(dict(testname=self.ts.values), index=self.ts.index)
+        assert_frame_equal(rs, xp)
+
+        rs = self.ts.to_frame(name='testdifferent')
+        xp = pd.DataFrame(
+            dict(testdifferent=self.ts.values), index=self.ts.index)
+        assert_frame_equal(rs, xp)
+
+    def test_to_dict(self):
+        tm.assert_series_equal(Series(self.ts.to_dict(), name='ts'), self.ts)
 
     def test_timeseries_periodindex(self):
         # GH2891
         from pandas import period_range
         prng = period_range('1/1/2011', '1/1/2012', freq='M')
         ts = Series(np.random.randn(len(prng)), prng)
-        new_ts = self.round_trip_pickle(ts)
+        new_ts = tm.round_trip_pickle(ts)
         self.assertEqual(new_ts.index.freq, 'M')
 
     def test_pickle_preserve_name(self):
@@ -174,3 +166,37 @@ class TestSeriesIO(TestData, tm.TestCase):
         self.assertTrue(isinstance(result, SubclassedFrame))
         expected = SubclassedFrame({'X': [1, 2, 3]})
         assert_frame_equal(result, expected)
+
+
+class TestSeriesToList(TestData, tm.TestCase):
+
+    def test_tolist(self):
+        rs = self.ts.tolist()
+        xp = self.ts.values.tolist()
+        assert_almost_equal(rs, xp)
+
+        # datetime64
+        s = Series(self.ts.index)
+        rs = s.tolist()
+        self.assertEqual(self.ts.index[0], rs[0])
+
+    def test_tolist_np_int(self):
+        # GH10904
+        for t in ['int8', 'int16', 'int32', 'int64']:
+            s = pd.Series([1], dtype=t)
+            assert isinstance(s.tolist()[0], (int, long))
+
+    def test_tolist_np_uint(self):
+        # GH10904
+        for t in ['uint8', 'uint16']:
+            s = pd.Series([1], dtype=t)
+            assert isinstance(s.tolist()[0], int)
+        for t in ['uint32', 'uint64']:
+            s = pd.Series([1], dtype=t)
+            assert isinstance(s.tolist()[0], long)
+
+    def test_tolist_np_float(self):
+        # GH10904
+        for t in ['float16', 'float32', 'float64']:
+            s = pd.Series([1], dtype=t)
+            assert isinstance(s.tolist()[0], float)

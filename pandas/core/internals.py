@@ -6,38 +6,69 @@ from datetime import datetime, timedelta, date
 from collections import defaultdict
 
 import numpy as np
+
 from pandas.core.base import PandasObject
 
-from pandas.core.common import (_possibly_downcast_to_dtype, isnull, _NS_DTYPE,
-                                _TD_DTYPE, ABCSeries, is_list_like,
-                                _infer_dtype_from_scalar, is_null_slice,
-                                is_dtype_equal, is_null_datelike_scalar,
-                                _maybe_promote, is_timedelta64_dtype,
-                                is_datetime64_dtype, is_datetimetz, is_sparse,
-                                array_equivalent, _is_na_compat,
-                                _maybe_convert_string_to_object,
-                                is_categorical, is_datetimelike_v_numeric,
-                                is_numeric_v_string_like, is_internal_type)
-from pandas.core.dtypes import DatetimeTZDtype
+from pandas.core.dtypes.dtypes import (
+    ExtensionDtype, DatetimeTZDtype,
+    CategoricalDtype)
+from pandas.core.dtypes.common import (
+    _TD_DTYPE, _NS_DTYPE,
+    _ensure_int64, _ensure_platform_int,
+    is_integer,
+    is_dtype_equal,
+    is_timedelta64_dtype,
+    is_datetime64_dtype, is_datetimetz, is_sparse,
+    is_categorical, is_categorical_dtype,
+    is_integer_dtype,
+    is_datetime64tz_dtype,
+    is_object_dtype,
+    is_datetimelike_v_numeric,
+    is_float_dtype, is_numeric_dtype,
+    is_numeric_v_string_like, is_extension_type,
+    is_list_like,
+    is_re,
+    is_re_compilable,
+    is_scalar,
+    _get_dtype)
+from pandas.core.dtypes.cast import (
+    maybe_downcast_to_dtype,
+    maybe_convert_string_to_object,
+    maybe_upcast,
+    maybe_convert_scalar, maybe_promote,
+    infer_dtype_from_scalar,
+    soft_convert_objects,
+    maybe_convert_objects,
+    astype_nansafe,
+    find_common_type)
+from pandas.core.dtypes.missing import (
+    isnull, array_equivalent,
+    _is_na_compat,
+    is_null_datelike_scalar)
+import pandas.core.dtypes.concat as _concat
+
+from pandas.core.dtypes.generic import ABCSeries
+from pandas.core.common import is_null_slice
+import pandas.core.algorithms as algos
 
 from pandas.core.index import Index, MultiIndex, _ensure_index
 from pandas.core.indexing import maybe_convert_indices, length_of_indexer
 from pandas.core.categorical import Categorical, maybe_to_categorical
-from pandas.tseries.index import DatetimeIndex
-import pandas.core.common as com
-import pandas.core.missing as mis
-import pandas.core.convert as convert
-from pandas.sparse.array import _maybe_to_sparse, SparseArray
-import pandas.lib as lib
-import pandas.tslib as tslib
-import pandas.computation.expressions as expressions
+from pandas.core.indexes.datetimes import DatetimeIndex
+from pandas.io.formats.printing import pprint_thing
+
+import pandas.core.missing as missing
+from pandas.core.sparse.array import _maybe_to_sparse, SparseArray
+from pandas._libs import lib, tslib
+from pandas._libs.tslib import Timedelta
+from pandas._libs.lib import BlockPlacement
+
+import pandas.core.computation.expressions as expressions
 from pandas.util.decorators import cache_readonly
+from pandas.util.validators import validate_bool_kwarg
 
-from pandas.tslib import Timedelta
-from pandas import compat
+from pandas import compat, _np_version_under1p9
 from pandas.compat import range, map, zip, u
-
-from pandas.lib import BlockPlacement
 
 
 class Block(PandasObject):
@@ -78,7 +109,7 @@ class Block(PandasObject):
         self.mgr_locs = placement
         self.values = values
 
-        if len(self.mgr_locs) != len(self.values):
+        if ndim and len(self.mgr_locs) != len(self.values):
             raise ValueError('Wrong number of items passed %d, placement '
                              'implies %d' % (len(self.values),
                                              len(self.mgr_locs)))
@@ -106,8 +137,8 @@ class Block(PandasObject):
         validate that we have a astypeable to categorical,
         returns a boolean if we are a categorical
         """
-        if com.is_categorical_dtype(dtype):
-            if dtype == com.CategoricalDtype():
+        if is_categorical_dtype(dtype):
+            if dtype == CategoricalDtype():
                 return True
 
             # this is a pd.Categorical, but is not
@@ -131,6 +162,8 @@ class Block(PandasObject):
         return an internal format, currently just the ndarray
         this is often overriden to handle to_dense like operations
         """
+        if is_object_dtype(dtype):
+            return self.values.astype(object)
         return self.values
 
     def to_dense(self):
@@ -140,6 +173,10 @@ class Block(PandasObject):
         """ return myself as an object block """
         values = self.get_values(dtype=object)
         return self.make_block(values, klass=ObjectBlock)
+
+    @property
+    def _na_value(self):
+        return np.nan
 
     @property
     def fill_value(self):
@@ -168,6 +205,12 @@ class Block(PandasObject):
 
         return make_block(values, placement=placement, ndim=ndim, **kwargs)
 
+    def make_block_scalar(self, values, **kwargs):
+        """
+        Create a ScalarBlock
+        """
+        return ScalarBlock(values)
+
     def make_block_same_class(self, values, placement=None, fastpath=True,
                               **kwargs):
         """ Wrap given values in a block of same type as self. """
@@ -186,15 +229,15 @@ class Block(PandasObject):
     def __unicode__(self):
 
         # don't want to print out all of the items here
-        name = com.pprint_thing(self.__class__.__name__)
+        name = pprint_thing(self.__class__.__name__)
         if self._is_single_block:
 
             result = '%s: %s dtype: %s' % (name, len(self), self.dtype)
 
         else:
 
-            shape = ' x '.join([com.pprint_thing(s) for s in self.shape])
-            result = '%s: %s, %s, dtype: %s' % (name, com.pprint_thing(
+            shape = ' x '.join([pprint_thing(s) for s in self.shape])
+            result = '%s: %s, %s, dtype: %s' % (name, pprint_thing(
                 self.mgr_locs.indexer), shape, self.dtype)
 
         return result
@@ -278,8 +321,8 @@ class Block(PandasObject):
         if fill_value is None:
             fill_value = self.fill_value
 
-        new_values = com.take_nd(self.values, indexer, axis,
-                                 fill_value=fill_value, mask_info=mask_info)
+        new_values = algos.take_nd(self.values, indexer, axis,
+                                   fill_value=fill_value, mask_info=mask_info)
         return self.make_block(new_values, fastpath=True)
 
     def get(self, item):
@@ -310,9 +353,11 @@ class Block(PandasObject):
         """ apply the function to my values; return a block if we are not
         one
         """
-        result = func(self.values, **kwargs)
+        with np.errstate(all='ignore'):
+            result = func(self.values, **kwargs)
         if not isinstance(result, Block):
-            result = self.make_block(values=_block_shape(result))
+            result = self.make_block(values=_block_shape(result,
+                                                         ndim=self.ndim))
 
         return result
 
@@ -321,6 +366,7 @@ class Block(PandasObject):
         """ fillna on the block with the value. If we fail, then convert to
         ObjectBlock and try again
         """
+        inplace = validate_bool_kwarg(inplace, 'inplace')
 
         if not self._can_hold_na:
             if inplace:
@@ -331,6 +377,10 @@ class Block(PandasObject):
         original_value = value
         mask = isnull(self.values)
         if limit is not None:
+            if not is_integer(limit):
+                raise ValueError('Limit must be an integer')
+            if limit < 1:
+                raise ValueError('Limit must be greater than 0')
             if self.ndim > 2:
                 raise NotImplementedError("number of dimensions for 'fillna' "
                                           "is currently limited to 2")
@@ -383,7 +433,7 @@ class Block(PandasObject):
             if dtypes is None:
                 dtypes = 'infer'
 
-            nv = _possibly_downcast_to_dtype(values, dtypes)
+            nv = maybe_downcast_to_dtype(values, dtypes)
             return self.make_block(nv, fastpath=True)
 
         # ndim > 1
@@ -409,24 +459,30 @@ class Block(PandasObject):
             if dtype is None:
                 nv = _block_shape(values[i], ndim=self.ndim)
             else:
-                nv = _possibly_downcast_to_dtype(values[i], dtype)
+                nv = maybe_downcast_to_dtype(values[i], dtype)
                 nv = _block_shape(nv, ndim=self.ndim)
 
             blocks.append(self.make_block(nv, fastpath=True, placement=[rl]))
 
         return blocks
 
-    def astype(self, dtype, copy=False, raise_on_error=True, values=None,
-               **kwargs):
-        return self._astype(dtype, copy=copy, raise_on_error=raise_on_error,
-                            values=values, **kwargs)
+    def astype(self, dtype, copy=False, errors='raise', values=None, **kwargs):
+        return self._astype(dtype, copy=copy, errors=errors, values=values,
+                            **kwargs)
 
-    def _astype(self, dtype, copy=False, raise_on_error=True, values=None,
+    def _astype(self, dtype, copy=False, errors='raise', values=None,
                 klass=None, mgr=None, **kwargs):
         """
         Coerce to the new type (if copy=True, return a new copy)
         raise on an except if raise == True
         """
+        errors_legal_values = ('raise', 'ignore')
+
+        if errors not in errors_legal_values:
+            invalid_arg = ("Expected value of kwarg 'errors' to be one of {}. "
+                           "Supplied value is '{}'".format(
+                               list(errors_legal_values), errors))
+            raise ValueError(invalid_arg)
 
         # may need to convert to categorical
         # this is only called for non-categoricals
@@ -462,13 +518,13 @@ class Block(PandasObject):
                     values = self.get_values(dtype=dtype)
 
                 # _astype_nansafe works fine with 1-d only
-                values = com._astype_nansafe(values.ravel(), dtype, copy=True)
+                values = astype_nansafe(values.ravel(), dtype, copy=True)
                 values = values.reshape(self.shape)
 
             newb = make_block(values, placement=self.mgr_locs, dtype=dtype,
                               klass=klass)
         except:
-            if raise_on_error is True:
+            if errors == 'raise':
                 raise
             newb = self.copy() if copy else self
 
@@ -526,7 +582,7 @@ class Block(PandasObject):
             return result
 
         # may need to change the dtype here
-        return _possibly_downcast_to_dtype(result, dtype)
+        return maybe_downcast_to_dtype(result, dtype)
 
     def _try_operate(self, values):
         """ return a version to operate on as the input """
@@ -581,15 +637,15 @@ class Block(PandasObject):
         compatibility.
         """
 
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         original_to_replace = to_replace
         mask = isnull(self.values)
-
         # try to replace, if we raise an error, convert to ObjectBlock and
         # retry
         try:
             values, _, to_replace, _ = self._try_coerce_args(self.values,
                                                              to_replace)
-            mask = com.mask_missing(values, to_replace)
+            mask = missing.mask_missing(values, to_replace)
             if filter is not None:
                 filtered_out = ~self.mgr_locs.isin(filter)
                 mask[filtered_out.nonzero()[0]] = False
@@ -632,7 +688,7 @@ class Block(PandasObject):
 
         # cast the values to a type that can hold nan (if necessary)
         if not self._can_hold_element(value):
-            dtype, _ = com._maybe_promote(arr_value.dtype)
+            dtype, _ = maybe_promote(arr_value.dtype)
             values = values.astype(dtype)
 
         transf = (lambda x: x.T) if self.ndim == 2 else (lambda x: x)
@@ -665,7 +721,7 @@ class Block(PandasObject):
                 if arr_value.ndim == 1:
                     if not isinstance(indexer, tuple):
                         indexer = tuple([indexer])
-                    return all([lib.isscalar(idx) for idx in indexer])
+                    return all([is_scalar(idx) for idx in indexer])
                 return False
 
             def _is_empty_indexer(indexer):
@@ -705,8 +761,8 @@ class Block(PandasObject):
             if hasattr(value, 'dtype') and is_dtype_equal(values.dtype,
                                                           value.dtype):
                 dtype = value.dtype
-            elif lib.isscalar(value):
-                dtype, _ = _infer_dtype_from_scalar(value)
+            elif is_scalar(value):
+                dtype, _ = infer_dtype_from_scalar(value)
             else:
                 dtype = 'infer'
             values = self._try_coerce_and_cast_result(values, dtype)
@@ -819,7 +875,7 @@ class Block(PandasObject):
                             n = np.array(new)
 
                         # type of the new block
-                        dtype, _ = com._maybe_promote(n.dtype)
+                        dtype, _ = maybe_promote(n.dtype)
 
                         # we need to explicitly astype here to make a copy
                         n = n.astype(dtype)
@@ -853,6 +909,9 @@ class Block(PandasObject):
                     inplace=False, limit=None, limit_direction='forward',
                     fill_value=None, coerce=False, downcast=None, mgr=None,
                     **kwargs):
+
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+
         def check_int_bool(self, inplace):
             # Only FloatBlocks will contain NaNs.
             # timedelta subclasses IntBlock
@@ -864,7 +923,7 @@ class Block(PandasObject):
 
         # a fill na type method
         try:
-            m = mis._clean_fill_method(method)
+            m = missing.clean_fill_method(method)
         except:
             m = None
 
@@ -879,7 +938,7 @@ class Block(PandasObject):
                                                downcast=downcast, mgr=mgr)
         # try an interp method
         try:
-            m = mis._clean_interp_method(method, **kwargs)
+            m = missing.clean_interp_method(method, **kwargs)
         except:
             m = None
 
@@ -900,6 +959,8 @@ class Block(PandasObject):
                                downcast=None, mgr=None):
         """ fillna but using the interpolate machinery """
 
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+
         # if we are coercing, then don't force the conversion
         # if the block can't hold the type
         if coerce:
@@ -912,9 +973,9 @@ class Block(PandasObject):
         values = self.values if inplace else self.values.copy()
         values, _, fill_value, _ = self._try_coerce_args(values, fill_value)
         values = self._try_operate(values)
-        values = mis.interpolate_2d(values, method=method, axis=axis,
-                                    limit=limit, fill_value=fill_value,
-                                    dtype=self.dtype)
+        values = missing.interpolate_2d(values, method=method, axis=axis,
+                                        limit=limit, fill_value=fill_value,
+                                        dtype=self.dtype)
         values = self._try_coerce_result(values)
 
         blocks = [self.make_block(values, klass=self.__class__, fastpath=True)]
@@ -926,6 +987,7 @@ class Block(PandasObject):
                      mgr=None, **kwargs):
         """ interpolate using scipy wrappers """
 
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         data = self.values if inplace else self.values.copy()
 
         # only deal with floats
@@ -947,11 +1009,11 @@ class Block(PandasObject):
 
             # process a 1-d slice, returning it
             # should the axis argument be handled below in apply_along_axis?
-            # i.e. not an arg to mis.interpolate_1d
-            return mis.interpolate_1d(index, x, method=method, limit=limit,
-                                      limit_direction=limit_direction,
-                                      fill_value=fill_value,
-                                      bounds_error=False, **kwargs)
+            # i.e. not an arg to missing.interpolate_1d
+            return missing.interpolate_1d(index, x, method=method, limit=limit,
+                                          limit_direction=limit_direction,
+                                          fill_value=fill_value,
+                                          bounds_error=False, **kwargs)
 
         # interp each column independently
         interp_values = np.apply_along_axis(func, axis, data)
@@ -966,7 +1028,7 @@ class Block(PandasObject):
 
         """
 
-        # com.take_nd dispatches for DatetimeTZBlock, CategoricalBlock
+        # algos.take_nd dispatches for DatetimeTZBlock, CategoricalBlock
         # so need to preserve types
         # sparse is treated like an ndarray, but needs .get_values() shaping
 
@@ -976,12 +1038,12 @@ class Block(PandasObject):
 
         if fill_tuple is None:
             fill_value = self.fill_value
-            new_values = com.take_nd(values, indexer, axis=axis,
-                                     allow_fill=False)
+            new_values = algos.take_nd(values, indexer, axis=axis,
+                                       allow_fill=False)
         else:
             fill_value = fill_tuple[0]
-            new_values = com.take_nd(values, indexer, axis=axis,
-                                     allow_fill=True, fill_value=fill_value)
+            new_values = algos.take_nd(values, indexer, axis=axis,
+                                       allow_fill=True, fill_value=fill_value)
 
         if new_mgr_locs is None:
             if axis == 0:
@@ -1000,7 +1062,7 @@ class Block(PandasObject):
 
     def diff(self, n, axis=1, mgr=None):
         """ return block for the diff of the values """
-        new_values = com.diff(self.values, n, axis=axis)
+        new_values = algos.diff(self.values, n, axis=axis)
         return [self.make_block(values=new_values, fastpath=True)]
 
     def shift(self, periods, axis=0, mgr=None):
@@ -1008,7 +1070,7 @@ class Block(PandasObject):
 
         # convert integer to float if necessary. need to do a lot more than
         # that, handle boolean etc also
-        new_values, fill_value = com._maybe_upcast(self.values)
+        new_values, fill_value = maybe_upcast(self.values)
 
         # make sure array sent to np.roll is c_contiguous
         f_ordered = new_values.flags.f_contiguous
@@ -1017,7 +1079,7 @@ class Block(PandasObject):
             axis = new_values.ndim - axis - 1
 
         if np.prod(new_values.shape):
-            new_values = np.roll(new_values, com._ensure_platform_int(periods),
+            new_values = np.roll(new_values, _ensure_platform_int(periods),
                                  axis=axis)
 
         axis_indexer = [slice(None)] * self.ndim
@@ -1107,8 +1169,9 @@ class Block(PandasObject):
         def handle_error():
 
             if raise_on_error:
+                # The 'detail' variable is defined in outer scope.
                 raise TypeError('Could not operate %s with block values %s' %
-                                (repr(other), str(detail)))
+                                (repr(other), str(detail)))  # noqa
             else:
                 # return the values
                 result = np.empty(values.shape, dtype='O')
@@ -1117,7 +1180,8 @@ class Block(PandasObject):
 
         # get the result
         try:
-            result = get_result(other)
+            with np.errstate(all='ignore'):
+                result = get_result(other)
 
         # if we have an invalid shape/broadcast error
         # GH4576, so raise instead of allowing to pass through
@@ -1190,7 +1254,8 @@ class Block(PandasObject):
             raise ValueError("where must have a condition that is ndarray "
                              "like")
 
-        other = _maybe_convert_string_to_object(other)
+        other = maybe_convert_string_to_object(other)
+        other = maybe_convert_scalar(other)
 
         # our where function
         def func(cond, values, other):
@@ -1246,6 +1311,140 @@ class Block(PandasObject):
         if self.dtype != other.dtype or self.shape != other.shape:
             return False
         return array_equivalent(self.values, other.values)
+
+    def quantile(self, qs, interpolation='linear', axis=0, mgr=None):
+        """
+        compute the quantiles of the
+
+        Parameters
+        ----------
+        qs: a scalar or list of the quantiles to be computed
+        interpolation: type of interpolation, default 'linear'
+        axis: axis to compute, default 0
+
+        Returns
+        -------
+        tuple of (axis, block)
+
+        """
+        if _np_version_under1p9:
+            if interpolation != 'linear':
+                raise ValueError("Interpolation methods other than linear "
+                                 "are not supported in numpy < 1.9.")
+
+        kw = {}
+        if not _np_version_under1p9:
+            kw.update({'interpolation': interpolation})
+
+        values = self.get_values()
+        values, _, _, _ = self._try_coerce_args(values, values)
+
+        def _nanpercentile1D(values, mask, q, **kw):
+            values = values[~mask]
+
+            if len(values) == 0:
+                if is_scalar(q):
+                    return self._na_value
+                else:
+                    return np.array([self._na_value] * len(q),
+                                    dtype=values.dtype)
+
+            return np.percentile(values, q, **kw)
+
+        def _nanpercentile(values, q, axis, **kw):
+
+            mask = isnull(self.values)
+            if not is_scalar(mask) and mask.any():
+                if self.ndim == 1:
+                    return _nanpercentile1D(values, mask, q, **kw)
+                else:
+                    # for nonconsolidatable blocks mask is 1D, but values 2D
+                    if mask.ndim < values.ndim:
+                        mask = mask.reshape(values.shape)
+                    if axis == 0:
+                        values = values.T
+                        mask = mask.T
+                    result = [_nanpercentile1D(val, m, q, **kw) for (val, m)
+                              in zip(list(values), list(mask))]
+                    result = np.array(result, dtype=values.dtype, copy=False).T
+                    return result
+            else:
+                return np.percentile(values, q, axis=axis, **kw)
+
+        from pandas import Float64Index
+        is_empty = values.shape[axis] == 0
+        if is_list_like(qs):
+            ax = Float64Index(qs)
+
+            if is_empty:
+                if self.ndim == 1:
+                    result = self._na_value
+                else:
+                    # create the array of na_values
+                    # 2d len(values) * len(qs)
+                    result = np.repeat(np.array([self._na_value] * len(qs)),
+                                       len(values)).reshape(len(values),
+                                                            len(qs))
+            else:
+
+                try:
+                    result = _nanpercentile(values, np.array(qs) * 100,
+                                            axis=axis, **kw)
+                except ValueError:
+
+                    # older numpies don't handle an array for q
+                    result = [_nanpercentile(values, q * 100,
+                                             axis=axis, **kw) for q in qs]
+
+                result = np.array(result, copy=False)
+                if self.ndim > 1:
+                    result = result.T
+
+        else:
+
+            if self.ndim == 1:
+                ax = Float64Index([qs])
+            else:
+                ax = mgr.axes[0]
+
+            if is_empty:
+                if self.ndim == 1:
+                    result = self._na_value
+                else:
+                    result = np.array([self._na_value] * len(self))
+            else:
+                result = _nanpercentile(values, qs * 100, axis=axis, **kw)
+
+        ndim = getattr(result, 'ndim', None) or 0
+        result = self._try_coerce_result(result)
+        if is_scalar(result):
+            return ax, self.make_block_scalar(result)
+        return ax, make_block(result,
+                              placement=np.arange(len(result)),
+                              ndim=ndim)
+
+
+class ScalarBlock(Block):
+    """
+    a scalar compat Block
+    """
+    __slots__ = ['_mgr_locs', 'values', 'ndim']
+
+    def __init__(self, values):
+        self.ndim = 0
+        self.mgr_locs = [0]
+        self.values = values
+
+    @property
+    def dtype(self):
+        return type(self.values)
+
+    @property
+    def shape(self):
+        return tuple([0])
+
+    def __len__(self):
+        return 0
 
 
 class NonConsolidatableMixIn(object):
@@ -1333,11 +1532,17 @@ class NonConsolidatableMixIn(object):
         -------
         a new block(s), the result of the putmask
         """
-        new_values = self.values if inplace else self.values.copy()
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+
+        # use block's copy logic.
+        # .values may be an Index which does shallow copy by default
+        new_values = self.values if inplace else self.copy().values
         new_values, _, new, _ = self._try_coerce_args(new_values, new)
 
         if isinstance(new, np.ndarray) and len(new) == len(mask):
             new = new[mask]
+
+        mask = _safe_reshape(mask, new_values.shape)
         new_values[mask] = new
         new_values = self._try_coerce_result(new_values)
         return [self.make_block(values=new_values)]
@@ -1395,7 +1600,21 @@ class FloatBlock(FloatOrComplexBlock):
         if slicer is not None:
             values = values[:, slicer]
 
-        from pandas.core.format import FloatArrayFormatter
+        # see gh-13418: no special formatting is desired at the
+        # output (important for appropriate 'quoting' behaviour),
+        # so do not pass it through the FloatArrayFormatter
+        if float_format is None and decimal == '.':
+            mask = isnull(values)
+
+            if not quoting:
+                values = values.astype(str)
+            else:
+                values = np.array(values, dtype='object')
+
+            values[mask] = na_rep
+            return values
+
+        from pandas.io.formats.format import FloatArrayFormatter
         formatter = FloatArrayFormatter(values, na_rep=na_rep,
                                         float_format=float_format,
                                         decimal=decimal, quoting=quoting,
@@ -1443,7 +1662,7 @@ class IntBlock(NumericBlock):
             tipo = element.dtype.type
             return (issubclass(tipo, np.integer) and
                     not issubclass(tipo, (np.datetime64, np.timedelta64)))
-        return com.is_integer(element)
+        return is_integer(element)
 
     def _try_cast(self, element):
         try:
@@ -1452,24 +1671,48 @@ class IntBlock(NumericBlock):
             return element
 
     def should_store(self, value):
-        return com.is_integer_dtype(value) and value.dtype == self.dtype
+        return is_integer_dtype(value) and value.dtype == self.dtype
 
 
-class TimeDeltaBlock(IntBlock):
+class DatetimeLikeBlockMixin(object):
+
+    @property
+    def _na_value(self):
+        return tslib.NaT
+
+    @property
+    def fill_value(self):
+        return tslib.iNaT
+
+    def _try_operate(self, values):
+        """ return a version to operate on """
+        return values.view('i8')
+
+    def get_values(self, dtype=None):
+        """
+        return object dtype as boxed values, such as Timestamps/Timedelta
+        """
+        if is_object_dtype(dtype):
+            return lib.map_infer(self.values.ravel(),
+                                 self._box_func).reshape(self.values.shape)
+        return self.values
+
+
+class TimeDeltaBlock(DatetimeLikeBlockMixin, IntBlock):
     __slots__ = ()
     is_timedelta = True
     _can_hold_na = True
     is_numeric = False
 
     @property
-    def fill_value(self):
-        return tslib.iNaT
+    def _box_func(self):
+        return lambda x: tslib.Timedelta(x, unit='ns')
 
     def fillna(self, value, **kwargs):
 
         # allow filling with integers to be
         # interpreted as seconds
-        if not isinstance(value, np.timedelta64) and com.is_integer(value):
+        if not isinstance(value, np.timedelta64) and is_integer(value):
             value = Timedelta(value, unit='s')
         return super(TimeDeltaBlock, self).fillna(value, **kwargs)
 
@@ -1502,7 +1745,7 @@ class TimeDeltaBlock(IntBlock):
             other = other.value
         elif isinstance(other, np.timedelta64):
             other_mask = isnull(other)
-            other = other.view('i8')
+            other = Timedelta(other).value
         elif isinstance(other, timedelta):
             other = Timedelta(other).value
         elif isinstance(other, np.ndarray):
@@ -1516,10 +1759,6 @@ class TimeDeltaBlock(IntBlock):
 
         return values, values_mask, other, other_mask
 
-    def _try_operate(self, values):
-        """ return a version to operate on """
-        return values.view('i8')
-
     def _try_coerce_result(self, result):
         """ reverse of try_coerce_args / try_operate """
         if isinstance(result, np.ndarray):
@@ -1527,8 +1766,8 @@ class TimeDeltaBlock(IntBlock):
             if result.dtype.kind in ['i', 'f', 'O']:
                 result = result.astype('m8[ns]')
             result[mask] = tslib.iNaT
-        elif isinstance(result, np.integer):
-            result = lib.Timedelta(result)
+        elif isinstance(result, (np.integer, np.float)):
+            result = self._box_func(result)
         return result
 
     def should_store(self, value):
@@ -1550,20 +1789,13 @@ class TimeDeltaBlock(IntBlock):
         imask = (~mask).ravel()
 
         # FIXME:
-        # should use the core.format.Timedelta64Formatter here
+        # should use the formats.format.Timedelta64Formatter here
         # to figure what format to pass to the Timedelta
         # e.g. to not show the decimals say
         rvalues.flat[imask] = np.array([Timedelta(val)._repr_base(format='all')
                                         for val in values.ravel()[imask]],
                                        dtype=object)
         return rvalues
-
-    def get_values(self, dtype=None):
-        # return object dtypes as Timedelta
-        if dtype == object:
-            return lib.map_infer(self.values.ravel(),
-                                 lib.Timedelta).reshape(self.values.shape)
-        return self.values
 
 
 class BoolBlock(NumericBlock):
@@ -1587,13 +1819,15 @@ class BoolBlock(NumericBlock):
         return issubclass(value.dtype.type, np.bool_)
 
     def replace(self, to_replace, value, inplace=False, filter=None,
-                regex=False, mgr=None):
+                regex=False, convert=True, mgr=None):
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         to_replace_values = np.atleast_1d(to_replace)
         if not np.can_cast(to_replace_values, bool):
             return self
         return super(BoolBlock, self).replace(to_replace, value,
                                               inplace=inplace, filter=filter,
-                                              regex=regex, mgr=mgr)
+                                              regex=regex, convert=convert,
+                                              mgr=mgr)
 
 
 class ObjectBlock(Block):
@@ -1623,6 +1857,7 @@ class ObjectBlock(Block):
 
         can return multiple blocks!
         """
+
         if args:
             raise NotImplementedError
         by_item = True if 'by_item' not in kwargs else kwargs['by_item']
@@ -1633,10 +1868,10 @@ class ObjectBlock(Block):
             new_style |= kw in kwargs
 
         if new_style:
-            fn = convert._soft_convert_objects
+            fn = soft_convert_objects
             fn_inputs = new_inputs
         else:
-            fn = convert._possibly_convert_objects
+            fn = maybe_convert_objects
             fn_inputs = ['convert_dates', 'convert_numeric',
                          'convert_timedeltas']
         fn_inputs += ['copy']
@@ -1653,14 +1888,22 @@ class ObjectBlock(Block):
             for i, rl in enumerate(self.mgr_locs):
                 values = self.iget(i)
 
-                values = fn(values.ravel(), **fn_kwargs).reshape(values.shape)
-                values = _block_shape(values, ndim=self.ndim)
+                shape = values.shape
+                values = fn(values.ravel(), **fn_kwargs)
+                try:
+                    values = values.reshape(shape)
+                    values = _block_shape(values, ndim=self.ndim)
+                except (AttributeError, NotImplementedError):
+                    pass
                 newb = make_block(values, ndim=self.ndim, placement=[rl])
                 blocks.append(newb)
 
         else:
-            values = fn(
-                self.values.ravel(), **fn_kwargs).reshape(self.values.shape)
+            values = fn(self.values.ravel(), **fn_kwargs)
+            try:
+                values = values.reshape(self.values.shape)
+            except NotImplementedError:
+                pass
             blocks.append(make_block(values, ndim=self.ndim,
                                      placement=self.mgr_locs))
 
@@ -1713,19 +1956,19 @@ class ObjectBlock(Block):
         return not (issubclass(value.dtype.type,
                                (np.integer, np.floating, np.complexfloating,
                                 np.datetime64, np.bool_)) or
-                    is_internal_type(value))
+                    is_extension_type(value))
 
     def replace(self, to_replace, value, inplace=False, filter=None,
                 regex=False, convert=True, mgr=None):
-        to_rep_is_list = com.is_list_like(to_replace)
-        value_is_list = com.is_list_like(value)
+        to_rep_is_list = is_list_like(to_replace)
+        value_is_list = is_list_like(value)
         both_lists = to_rep_is_list and value_is_list
         either_list = to_rep_is_list or value_is_list
 
         result_blocks = []
         blocks = [self]
 
-        if not either_list and com.is_re(to_replace):
+        if not either_list and is_re(to_replace):
             return self._replace_single(to_replace, value, inplace=inplace,
                                         filter=filter, regex=True,
                                         convert=convert, mgr=mgr)
@@ -1762,11 +2005,14 @@ class ObjectBlock(Block):
 
     def _replace_single(self, to_replace, value, inplace=False, filter=None,
                         regex=False, convert=True, mgr=None):
+
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+
         # to_replace is regex compilable
-        to_rep_re = regex and com.is_re_compilable(to_replace)
+        to_rep_re = regex and is_re_compilable(to_replace)
 
         # regex is regex compilable
-        regex_re = com.is_re_compilable(regex)
+        regex_re = is_re_compilable(regex)
 
         # only one will survive
         if to_rep_re and regex_re:
@@ -1874,6 +2120,17 @@ class CategoricalBlock(NonConsolidatableMixIn, ObjectBlock):
         # return same dims as we currently have
         return self.values._slice(slicer)
 
+    def _try_coerce_result(self, result):
+        """ reverse of try_coerce_args """
+
+        # GH12564: CategoricalBlock is 1-dim only
+        # while returned results could be any dim
+        if ((not is_categorical_dtype(result)) and
+                isinstance(result, np.ndarray)):
+            result = _block_shape(result, ndim=self.ndim)
+
+        return result
+
     def fillna(self, value, limit=None, inplace=False, downcast=None,
                mgr=None):
         # we may need to upcast our fill to match our dtype
@@ -1922,7 +2179,7 @@ class CategoricalBlock(NonConsolidatableMixIn, ObjectBlock):
 
         return self.make_block_same_class(new_values, new_mgr_locs)
 
-    def _astype(self, dtype, copy=False, raise_on_error=True, values=None,
+    def _astype(self, dtype, copy=False, errors='raise', values=None,
                 klass=None, mgr=None):
         """
         Coerce to the new type (if copy=True, return a new copy)
@@ -1954,7 +2211,7 @@ class CategoricalBlock(NonConsolidatableMixIn, ObjectBlock):
         return values.reshape(1, len(values))
 
 
-class DatetimeBlock(Block):
+class DatetimeBlock(DatetimeLikeBlockMixin, Block):
     __slots__ = ()
     is_datetime = True
     _can_hold_na = True
@@ -1973,7 +2230,7 @@ class DatetimeBlock(Block):
         """
 
         # if we are passed a datetime64[ns, tz]
-        if com.is_datetime64tz_dtype(dtype):
+        if is_datetime64tz_dtype(dtype):
             dtype = DatetimeTZDtype(dtype)
 
             values = self.values
@@ -1989,7 +2246,7 @@ class DatetimeBlock(Block):
         if is_list_like(element):
             element = np.array(element)
             return element.dtype == _NS_DTYPE or element.dtype == np.int64
-        return (com.is_integer(element) or isinstance(element, datetime) or
+        return (is_integer(element) or isinstance(element, datetime) or
                 isnull(element))
 
     def _try_cast(self, element):
@@ -1997,10 +2254,6 @@ class DatetimeBlock(Block):
             return int(element)
         except:
             return element
-
-    def _try_operate(self, values):
-        """ return a version to operate on """
-        return values.view('i8')
 
     def _try_coerce_args(self, values, other):
         """
@@ -2029,13 +2282,13 @@ class DatetimeBlock(Block):
             other = tslib.iNaT
             other_mask = True
         elif isinstance(other, (datetime, np.datetime64, date)):
-            other = lib.Timestamp(other)
+            other = self._box_func(other)
             if getattr(other, 'tz') is not None:
                 raise TypeError("cannot coerce a Timestamp with a tz on a "
                                 "naive Block")
             other_mask = isnull(other)
             other = other.asm8.view('i8')
-        elif hasattr(other, 'dtype') and com.is_integer_dtype(other):
+        elif hasattr(other, 'dtype') and is_integer_dtype(other):
             other = other.view('i8')
         else:
             try:
@@ -2055,14 +2308,17 @@ class DatetimeBlock(Block):
         """ reverse of try_coerce_args """
         if isinstance(result, np.ndarray):
             if result.dtype.kind in ['i', 'f', 'O']:
-                result = result.astype('M8[ns]')
-        elif isinstance(result, (np.integer, np.datetime64)):
-            result = lib.Timestamp(result)
+                try:
+                    result = result.astype('M8[ns]')
+                except ValueError:
+                    pass
+        elif isinstance(result, (np.integer, np.float, np.datetime64)):
+            result = self._box_func(result)
         return result
 
     @property
-    def fill_value(self):
-        return tslib.iNaT
+    def _box_func(self):
+        return tslib.Timestamp
 
     def to_native_types(self, slicer=None, na_rep=None, date_format=None,
                         quoting=None, **kwargs):
@@ -2072,7 +2328,7 @@ class DatetimeBlock(Block):
         if slicer is not None:
             values = values[..., slicer]
 
-        from pandas.core.format import _get_format_datetime64_from_values
+        from pandas.io.formats.format import _get_format_datetime64_from_values
         format = _get_format_datetime64_from_values(values, date_format)
 
         result = tslib.format_array_from_datetime(
@@ -2098,13 +2354,6 @@ class DatetimeBlock(Block):
 
         self.values[locs] = values
 
-    def get_values(self, dtype=None):
-        # return object dtype as Timestamps
-        if dtype == object:
-            return lib.map_infer(
-                self.values.ravel(), lib.Timestamp).reshape(self.values.shape)
-        return self.values
-
 
 class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
     """ implement a datetime64 block with a tz attribute """
@@ -2122,7 +2371,7 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
         if dtype is not None:
             if isinstance(dtype, compat.string_types):
                 dtype = DatetimeTZDtype.construct_from_string(dtype)
-            values = values.tz_localize('UTC').tz_convert(dtype.tz)
+            values = values._shallow_copy(tz=dtype.tz)
 
         if values.tz is None:
             raise ValueError("cannot create a DatetimeTZBlock without a tz")
@@ -2145,7 +2394,7 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
 
     def get_values(self, dtype=None):
         # return object dtype as Timestamps with the zones
-        if dtype == object:
+        if is_object_dtype(dtype):
             f = lambda x: lib.Timestamp(x, tz=self.values.tz)
             return lib.map_infer(
                 self.values.ravel(), f).reshape(self.values.shape)
@@ -2165,11 +2414,6 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
             kwargs['ndim'] = mgr.ndim
             kwargs['placement'] = [0]
         return self.make_block(values, klass=ObjectBlock, **kwargs)
-
-    def replace(self, *args, **kwargs):
-        # if we are forced to ObjectBlock, then don't coerce (to UTC)
-        kwargs['convert'] = False
-        return super(DatetimeTZBlock, self).replace(*args, **kwargs)
 
     def _slice(self, slicer):
         """ return a slice of my values """
@@ -2193,22 +2437,25 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
         -------
         base-type values, values mask, base-type other, other mask
         """
-        values_mask = isnull(values)
-        values = values.tz_localize(None).asi8
+        values_mask = _block_shape(isnull(values), ndim=self.ndim)
+        # asi8 is a view, needs copy
+        values = _block_shape(values.asi8, ndim=self.ndim)
         other_mask = False
 
         if isinstance(other, ABCSeries):
             other = self._holder(other)
             other_mask = isnull(other)
+
         if isinstance(other, bool):
             raise TypeError
-        elif is_null_datelike_scalar(other):
+        elif (is_null_datelike_scalar(other) or
+              (is_scalar(other) and isnull(other))):
             other = tslib.iNaT
             other_mask = True
         elif isinstance(other, self._holder):
             if other.tz != self.values.tz:
                 raise ValueError("incompatible or non tz-aware value")
-            other = other.tz_localize(None).asi8
+            other = other.asi8
             other_mask = isnull(other)
         elif isinstance(other, (np.datetime64, datetime, date)):
             other = lib.Timestamp(other)
@@ -2218,19 +2465,28 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
             if tz is None or str(tz) != str(self.values.tz):
                 raise ValueError("incompatible or non tz-aware value")
             other_mask = isnull(other)
-            other = other.tz_localize(None).value
+            other = other.value
 
         return values, values_mask, other, other_mask
 
     def _try_coerce_result(self, result):
         """ reverse of try_coerce_args """
-        result = super(DatetimeTZBlock, self)._try_coerce_result(result)
-
         if isinstance(result, np.ndarray):
-            result = self._holder(result, tz=self.values.tz)
-        elif isinstance(result, (np.integer, np.datetime64)):
+            if result.dtype.kind in ['i', 'f', 'O']:
+                result = result.astype('M8[ns]')
+        elif isinstance(result, (np.integer, np.float, np.datetime64)):
             result = lib.Timestamp(result, tz=self.values.tz)
+        if isinstance(result, np.ndarray):
+            # allow passing of > 1dim if its trivial
+            if result.ndim > 1:
+                result = result.reshape(np.prod(result.shape))
+            result = self.values._shallow_copy(result)
+
         return result
+
+    @property
+    def _box_func(self):
+        return lambda x: tslib.Timestamp(x, tz=self.dtype.tz)
 
     def shift(self, periods, axis=0, mgr=None):
         """ shift the block by periods """
@@ -2245,15 +2501,14 @@ class DatetimeTZBlock(NonConsolidatableMixIn, DatetimeBlock):
         else:
             indexer[:periods] = np.arange(-periods, N)
 
-        # move to UTC & take
-        new_values = self.values.tz_localize(None).asi8.take(indexer)
+        new_values = self.values.asi8.take(indexer)
 
         if periods > 0:
             new_values[:periods] = tslib.iNaT
         else:
             new_values[periods:] = tslib.iNaT
 
-        new_values = DatetimeIndex(new_values, tz=self.values.tz)
+        new_values = self.values._shallow_copy(new_values)
         return [self.make_block_same_class(new_values,
                                            placement=self.mgr_locs)]
 
@@ -2283,9 +2538,6 @@ class SparseBlock(NonConsolidatableMixIn, Block):
 
     @fill_value.setter
     def fill_value(self, v):
-        # we may need to upcast our fill to match our dtype
-        if issubclass(self.dtype.type, np.floating):
-            v = float(v)
         self.values.fill_value = v
 
     def to_dense(self):
@@ -2311,6 +2563,14 @@ class SparseBlock(NonConsolidatableMixIn, Block):
     def kind(self):
         return self.values.kind
 
+    def _astype(self, dtype, copy=False, raise_on_error=True, values=None,
+                klass=None, mgr=None, **kwargs):
+        if values is None:
+            values = self.values
+        values = values.astype(dtype, copy=copy)
+        return self.make_block_same_class(values=values,
+                                          placement=self.mgr_locs)
+
     def __len__(self):
         try:
             return self.sp_index.length
@@ -2328,8 +2588,8 @@ class SparseBlock(NonConsolidatableMixIn, Block):
                               copy=False, fastpath=True, **kwargs):
         """ return a new block """
         if dtype is None:
-            dtype = self.dtype
-        if fill_value is None:
+            dtype = values.dtype
+        if fill_value is None and not isinstance(values, SparseArray):
             fill_value = self.values.fill_value
 
         # if not isinstance(values, SparseArray) and values.ndim != self.ndim:
@@ -2360,8 +2620,8 @@ class SparseBlock(NonConsolidatableMixIn, Block):
     def interpolate(self, method='pad', axis=0, inplace=False, limit=None,
                     fill_value=None, **kwargs):
 
-        values = mis.interpolate_2d(self.values.to_dense(), method, axis,
-                                    limit, fill_value)
+        values = missing.interpolate_2d(self.values.to_dense(), method, axis,
+                                        limit, fill_value)
         return self.make_block_same_class(values=values,
                                           placement=self.mgr_locs)
 
@@ -2371,11 +2631,9 @@ class SparseBlock(NonConsolidatableMixIn, Block):
         if limit is not None:
             raise NotImplementedError("specifying a limit for 'fillna' has "
                                       "not been implemented yet")
-        if issubclass(self.dtype.type, np.floating):
-            value = float(value)
         values = self.values if inplace else self.values.copy()
-        return [self.make_block_same_class(values=values.get_values(value),
-                                           fill_value=value,
+        values = values.fillna(value, downcast=downcast)
+        return [self.make_block_same_class(values=values,
                                            placement=self.mgr_locs)]
 
     def shift(self, periods, axis=0, mgr=None):
@@ -2389,7 +2647,7 @@ class SparseBlock(NonConsolidatableMixIn, Block):
         new_values = self.values.to_dense().take(indexer)
         # convert integer to float if necessary. need to do a lot more than
         # that, handle boolean etc also
-        new_values, fill_value = com._maybe_upcast(new_values)
+        new_values, fill_value = maybe_upcast(new_values)
         if periods > 0:
             new_values[:periods] = fill_value
         else:
@@ -2579,7 +2837,7 @@ class BlockManager(PandasObject):
 
         self.axes[axis] = new_labels
 
-    def rename_axis(self, mapper, axis, copy=True):
+    def rename_axis(self, mapper, axis, copy=True, level=None):
         """
         Rename one of axes.
 
@@ -2588,10 +2846,11 @@ class BlockManager(PandasObject):
         mapper : unary callable
         axis : int
         copy : boolean, default True
+        level : int, default None
 
         """
         obj = self.copy(deep=copy)
-        obj.set_axis(axis, _transform_index(self.axes[axis], mapper))
+        obj.set_axis(axis, _transform_index(self.axes[axis], mapper, level))
         return obj
 
     def add_prefix(self, prefix):
@@ -2657,11 +2916,11 @@ class BlockManager(PandasObject):
 
     def get_dtypes(self):
         dtypes = np.array([blk.dtype for blk in self.blocks])
-        return com.take_1d(dtypes, self._blknos, allow_fill=False)
+        return algos.take_1d(dtypes, self._blknos, allow_fill=False)
 
     def get_ftypes(self):
         ftypes = np.array([blk.ftype for blk in self.blocks])
-        return com.take_1d(ftypes, self._blknos, allow_fill=False)
+        return algos.take_1d(ftypes, self._blknos, allow_fill=False)
 
     def __getstate__(self):
         block_values = [b.values for b in self.blocks]
@@ -2728,7 +2987,7 @@ class BlockManager(PandasObject):
         return len(self.items)
 
     def __unicode__(self):
-        output = com.pprint_thing(self.__class__.__name__)
+        output = pprint_thing(self.__class__.__name__)
         for i, ax in enumerate(self.axes):
             if i == 0:
                 output += u('\nItems: %s') % ax
@@ -2736,7 +2995,7 @@ class BlockManager(PandasObject):
                 output += u('\nAxis %d: %s') % (i, ax)
 
         for block in self.blocks:
-            output += u('\n%s') % com.pprint_thing(block)
+            output += u('\n%s') % pprint_thing(block)
         return output
 
     def _verify_integrity(self):
@@ -2839,6 +3098,95 @@ class BlockManager(PandasObject):
         bm._consolidate_inplace()
         return bm
 
+    def reduction(self, f, axis=0, consolidate=True, transposed=False,
+                  **kwargs):
+        """
+        iterate over the blocks, collect and create a new block manager.
+        This routine is intended for reduction type operations and
+        will do inference on the generated blocks.
+
+        Parameters
+        ----------
+        f: the callable or function name to operate on at the block level
+        axis: reduction axis, default 0
+        consolidate: boolean, default True. Join together blocks having same
+            dtype
+        transposed: boolean, default False
+            we are holding transposed data
+
+        Returns
+        -------
+        Block Manager (new object)
+
+        """
+
+        if consolidate:
+            self._consolidate_inplace()
+
+        axes, blocks = [], []
+        for b in self.blocks:
+            kwargs['mgr'] = self
+            axe, block = getattr(b, f)(axis=axis, **kwargs)
+
+            axes.append(axe)
+            blocks.append(block)
+
+        # note that some DatetimeTZ, Categorical are always ndim==1
+        ndim = set([b.ndim for b in blocks])
+
+        if 2 in ndim:
+
+            new_axes = list(self.axes)
+
+            # multiple blocks that are reduced
+            if len(blocks) > 1:
+                new_axes[1] = axes[0]
+
+                # reset the placement to the original
+                for b, sb in zip(blocks, self.blocks):
+                    b.mgr_locs = sb.mgr_locs
+
+            else:
+                new_axes[axis] = Index(np.concatenate(
+                    [ax.values for ax in axes]))
+
+            if transposed:
+                new_axes = new_axes[::-1]
+                blocks = [b.make_block(b.values.T,
+                                       placement=np.arange(b.shape[1])
+                                       ) for b in blocks]
+
+            return self.__class__(blocks, new_axes)
+
+        # 0 ndim
+        if 0 in ndim and 1 not in ndim:
+            values = np.array([b.values for b in blocks])
+            if len(values) == 1:
+                return values.item()
+            blocks = [make_block(values, ndim=1)]
+            axes = Index([ax[0] for ax in axes])
+
+        # single block
+        values = _concat._concat_compat([b.values for b in blocks])
+
+        # compute the orderings of our original data
+        if len(self.blocks) > 1:
+
+            indexer = np.empty(len(self.axes[0]), dtype=np.intp)
+            i = 0
+            for b in self.blocks:
+                for j in b.mgr_locs:
+                    indexer[j] = i
+                    i = i + 1
+
+            values = values.take(indexer)
+
+        return SingleBlockManager(
+            [make_block(values,
+                        ndim=1,
+                        placement=np.arange(len(values)))],
+            axes[0])
+
     def isnull(self, **kwargs):
         return self.apply('apply', **kwargs)
 
@@ -2847,6 +3195,9 @@ class BlockManager(PandasObject):
 
     def eval(self, **kwargs):
         return self.apply('eval', **kwargs)
+
+    def quantile(self, **kwargs):
+        return self.reduction('quantile', **kwargs)
 
     def setitem(self, **kwargs):
         return self.apply('setitem', **kwargs)
@@ -2882,6 +3233,8 @@ class BlockManager(PandasObject):
                      mgr=None):
         """ do a list replace """
 
+        inplace = validate_bool_kwarg(inplace, 'inplace')
+
         if mgr is None:
             mgr = self
 
@@ -2891,12 +3244,22 @@ class BlockManager(PandasObject):
         def comp(s):
             if isnull(s):
                 return isnull(values)
-            return _possibly_compare(values, getattr(s, 'asm8', s),
-                                     operator.eq)
+            return _maybe_compare(values, getattr(s, 'asm8', s), operator.eq)
+
+        def _cast_scalar(block, scalar):
+            dtype, val = infer_dtype_from_scalar(scalar, pandas_dtype=True)
+            if not is_dtype_equal(block.dtype, dtype):
+                dtype = find_common_type([block.dtype, dtype])
+                block = block.astype(dtype)
+                # use original value
+                val = scalar
+
+            return block, val
 
         masks = [comp(s) for i, s in enumerate(src_list)]
 
         result_blocks = []
+        src_len = len(src_list) - 1
         for blk in self.blocks:
 
             # its possible to get multiple result blocks here
@@ -2906,15 +3269,17 @@ class BlockManager(PandasObject):
                 new_rb = []
                 for b in rb:
                     if b.dtype == np.object_:
+                        convert = i == src_len
                         result = b.replace(s, d, inplace=inplace, regex=regex,
-                                           mgr=mgr)
+                                           mgr=mgr, convert=convert)
                         new_rb = _extend_blocks(result, new_rb)
                     else:
                         # get our mask for this element, sized to this
                         # particular block
                         m = masks[i][b.mgr_locs.indexer]
                         if m.any():
-                            new_rb.extend(b.putmask(m, d, inplace=True))
+                            b, val = _cast_scalar(b, d)
+                            new_rb.extend(b.putmask(m, val, inplace=True))
                         else:
                             new_rb.append(b)
                 rb = new_rb
@@ -3003,18 +3368,18 @@ class BlockManager(PandasObject):
         indexer = np.sort(np.concatenate([b.mgr_locs.as_array
                                           for b in blocks]))
         inv_indexer = lib.get_reverse_indexer(indexer, self.shape[0])
-        new_items = self.items.take(indexer)
 
         new_blocks = []
         for b in blocks:
             b = b.copy(deep=copy)
-            b.mgr_locs = com.take_1d(inv_indexer, b.mgr_locs.as_array, axis=0,
-                                     allow_fill=False)
+            b.mgr_locs = algos.take_1d(inv_indexer, b.mgr_locs.as_array,
+                                       axis=0, allow_fill=False)
             new_blocks.append(b)
 
-        new_axes = list(self.axes)
-        new_axes[0] = new_items
-        return self.__class__(new_blocks, new_axes, do_integrity_check=False)
+        axes = list(self.axes)
+        axes[0] = self.items.take(indexer)
+
+        return self.__class__(new_blocks, axes, do_integrity_check=False)
 
     def get_slice(self, slobj, axis=0):
         if axis >= self.ndim:
@@ -3227,7 +3592,7 @@ class BlockManager(PandasObject):
                 indexer = np.arange(len(self.items))[isnull(self.items)]
 
                 # allow a single nan location indexer
-                if not lib.isscalar(indexer):
+                if not is_scalar(indexer):
                     if len(indexer) == 1:
                         loc = indexer.item()
                     else:
@@ -3324,16 +3689,16 @@ class BlockManager(PandasObject):
         # FIXME: refactor, clearly separate broadcasting & zip-like assignment
         #        can prob also fix the various if tests for sparse/categorical
 
-        value_is_internal_type = is_internal_type(value)
+        value_is_extension_type = is_extension_type(value)
 
         # categorical/spares/datetimetz
-        if value_is_internal_type:
+        if value_is_extension_type:
 
             def value_getitem(placement):
                 return value
         else:
             if value.ndim == self.ndim - 1:
-                value = value.reshape((1,) + value.shape)
+                value = _safe_reshape(value, (1,) + value.shape)
 
                 def value_getitem(placement):
                     return value
@@ -3389,8 +3754,8 @@ class BlockManager(PandasObject):
             new_blknos.fill(-1)
             new_blknos[~is_deleted] = np.arange(self.nblocks -
                                                 len(removed_blknos))
-            self._blknos = com.take_1d(new_blknos, self._blknos, axis=0,
-                                       allow_fill=False)
+            self._blknos = algos.take_1d(new_blknos, self._blknos, axis=0,
+                                         allow_fill=False)
             self.blocks = tuple(blk for i, blk in enumerate(self.blocks)
                                 if i not in set(removed_blknos))
 
@@ -3399,7 +3764,7 @@ class BlockManager(PandasObject):
             unfit_count = len(unfit_mgr_locs)
 
             new_blocks = []
-            if value_is_internal_type:
+            if value_is_extension_type:
                 # This code (ab-)uses the fact that sparse blocks contain only
                 # one item.
                 new_blocks.extend(
@@ -3442,7 +3807,7 @@ class BlockManager(PandasObject):
         """
         if not allow_duplicates and item in self.items:
             # Should this be a different kind of error??
-            raise ValueError('cannot insert %s, already exists' % item)
+            raise ValueError('cannot insert {}, already exists'.format(item))
 
         if not isinstance(loc, int):
             raise TypeError("loc must be int")
@@ -3559,7 +3924,7 @@ class BlockManager(PandasObject):
                 return [blk.getitem_block(slobj, new_mgr_locs=slice(0, sllen))]
             elif not allow_fill or self.ndim == 1:
                 if allow_fill and fill_tuple[0] is None:
-                    _, fill_value = com._maybe_promote(blk.dtype)
+                    _, fill_value = maybe_promote(blk.dtype)
                     fill_tuple = (fill_value, )
 
                 return [blk.take_nd(slobj, axis=0,
@@ -3570,10 +3935,10 @@ class BlockManager(PandasObject):
             blknos = self._blknos[slobj]
             blklocs = self._blklocs[slobj]
         else:
-            blknos = com.take_1d(self._blknos, slobj, fill_value=-1,
-                                 allow_fill=allow_fill)
-            blklocs = com.take_1d(self._blklocs, slobj, fill_value=-1,
-                                  allow_fill=allow_fill)
+            blknos = algos.take_1d(self._blknos, slobj, fill_value=-1,
+                                   allow_fill=allow_fill)
+            blklocs = algos.take_1d(self._blklocs, slobj, fill_value=-1,
+                                    allow_fill=allow_fill)
 
         # When filling blknos, make sure blknos is updated before appending to
         # blocks list, that way new blkno is exactly len(blocks).
@@ -3617,7 +3982,7 @@ class BlockManager(PandasObject):
         block_shape = list(self.shape)
         block_shape[0] = len(placement)
 
-        dtype, fill_value = com._infer_dtype_from_scalar(fill_value)
+        dtype, fill_value = infer_dtype_from_scalar(fill_value)
         block_values = np.empty(block_shape, dtype=dtype)
         block_values.fill(fill_value)
         return make_block(block_values, placement=placement)
@@ -3764,6 +4129,16 @@ class SingleBlockManager(BlockManager):
     def _values(self):
         return self._block.values
 
+    @property
+    def _blknos(self):
+        """ compat with BlockManager """
+        return None
+
+    @property
+    def _blklocs(self):
+        """ compat with BlockManager """
+        return None
+
     def reindex(self, new_axis, indexer=None, method=None, fill_value=None,
                 limit=None, copy=True):
         # if we are the same and don't copy, just return
@@ -3779,18 +4154,16 @@ class SingleBlockManager(BlockManager):
             indexer = self.items.get_indexer_for(new_axis)
 
         if fill_value is None:
-            # FIXME: is fill_value used correctly in sparse blocks?
-            if not self._block.is_sparse:
-                fill_value = self._block.fill_value
-            else:
-                fill_value = np.nan
+            fill_value = np.nan
 
-        new_values = com.take_1d(values, indexer, fill_value=fill_value)
+        new_values = algos.take_1d(values, indexer, fill_value=fill_value)
 
         # fill if needed
         if method is not None or limit is not None:
-            new_values = mis.interpolate_2d(new_values, method=method,
-                                            limit=limit, fill_value=fill_value)
+            new_values = missing.interpolate_2d(new_values,
+                                                method=method,
+                                                limit=limit,
+                                                fill_value=fill_value)
 
         if self._block.is_sparse:
             make_block = self._block.make_block_same_class
@@ -3851,6 +4224,14 @@ class SingleBlockManager(BlockManager):
     def get_values(self):
         """ return a dense type view """
         return np.array(self._block.to_dense(), copy=False)
+
+    @property
+    def asobject(self):
+        """
+        return a object dtype array. datetime/timedelta like values are boxed
+        to Timestamp/Timedelta instances.
+        """
+        return self._block.get_values(dtype=object)
 
     @property
     def itemsize(self):
@@ -3979,11 +4360,6 @@ def form_blocks(arrays, names, axes):
         elif is_datetimetz(v):
             datetime_tz_items.append((i, k, v))
         elif issubclass(v.dtype.type, np.integer):
-            if v.dtype == np.uint64:
-                # HACK #2355 definite overflow
-                if (v > 2**63 - 1).any():
-                    object_items.append((i, k, v))
-                    continue
             int_items.append((i, k, v))
         elif v.dtype == np.bool_:
             bool_items.append((i, k, v))
@@ -4125,62 +4501,13 @@ def _interleaved_dtype(blocks):
     if not len(blocks):
         return None
 
-    counts = defaultdict(list)
-    for x in blocks:
-        counts[type(x)].append(x)
+    dtype = find_common_type([b.dtype for b in blocks])
 
-    def _lcd_dtype(l):
-        """ find the lowest dtype that can accomodate the given types """
-        m = l[0].dtype
-        for x in l[1:]:
-            if x.dtype.itemsize > m.itemsize:
-                m = x.dtype
-        return m
+    # only numpy compat
+    if isinstance(dtype, ExtensionDtype):
+        dtype = np.object
 
-    have_int = len(counts[IntBlock]) > 0
-    have_bool = len(counts[BoolBlock]) > 0
-    have_object = len(counts[ObjectBlock]) > 0
-    have_float = len(counts[FloatBlock]) > 0
-    have_complex = len(counts[ComplexBlock]) > 0
-    have_dt64 = len(counts[DatetimeBlock]) > 0
-    have_dt64_tz = len(counts[DatetimeTZBlock]) > 0
-    have_td64 = len(counts[TimeDeltaBlock]) > 0
-    have_cat = len(counts[CategoricalBlock]) > 0
-    # TODO: have_sparse is not used
-    have_sparse = len(counts[SparseBlock]) > 0  # noqa
-    have_numeric = have_float or have_complex or have_int
-
-    has_non_numeric = have_dt64 or have_dt64_tz or have_td64 or have_cat
-
-    if (have_object or
-        (have_bool and
-         (have_numeric or have_dt64 or have_dt64_tz or have_td64)) or
-        (have_numeric and has_non_numeric) or have_cat or have_dt64 or
-            have_dt64_tz or have_td64):
-        return np.dtype(object)
-    elif have_bool:
-        return np.dtype(bool)
-    elif have_int and not have_float and not have_complex:
-
-        # if we are mixing unsigned and signed, then return
-        # the next biggest int type (if we can)
-        lcd = _lcd_dtype(counts[IntBlock])
-        kinds = set([i.dtype.kind for i in counts[IntBlock]])
-        if len(kinds) == 1:
-            return lcd
-
-        if lcd == 'uint64' or lcd == 'int64':
-            return np.dtype('int64')
-
-        # return 1 bigger on the itemsize if unsinged
-        if lcd.kind == 'u':
-            return np.dtype('int%s' % (lcd.itemsize * 8 * 2))
-        return lcd
-
-    elif have_complex:
-        return np.dtype('c16')
-    else:
-        return _lcd_dtype(counts[FloatBlock] + counts[SparseBlock])
+    return dtype
 
 
 def _consolidate(blocks):
@@ -4246,7 +4573,7 @@ def _extend_blocks(result, blocks=None):
 
 def _block_shape(values, ndim=1, shape=None):
     """ guarantee the shape of the values to be at least 1 d """
-    if values.ndim <= ndim:
+    if values.ndim < ndim:
         if shape is None:
             shape = values.shape
         values = values.reshape(tuple((1, ) + shape))
@@ -4264,7 +4591,7 @@ def _vstack(to_stack, dtype):
         return np.vstack(to_stack)
 
 
-def _possibly_compare(a, b, op):
+def _maybe_compare(a, b, op):
 
     is_a_array = isinstance(a, np.ndarray)
     is_b_array = isinstance(b, np.ndarray)
@@ -4280,7 +4607,7 @@ def _possibly_compare(a, b, op):
     else:
         result = op(a, b)
 
-    if lib.isscalar(result) and (is_a_array or is_b_array):
+    if is_scalar(result) and (is_a_array or is_b_array):
         type_names = [type(a).__name__, type(b).__name__]
 
         if is_a_array:
@@ -4314,7 +4641,7 @@ def _block2d_to_blocknd(values, placement, shape, labels, ref_items):
     if mask.all():
         pvalues = np.empty(panel_shape, dtype=values.dtype)
     else:
-        dtype, fill_value = _maybe_promote(values.dtype)
+        dtype, fill_value = maybe_promote(values.dtype)
         pvalues = np.empty(panel_shape, dtype=dtype)
         pvalues.fill(fill_value)
 
@@ -4331,7 +4658,7 @@ def _factor_indexer(shape, labels):
     expanded label indexer
     """
     mult = np.array(shape)[::-1].cumprod()[::-1]
-    return com._ensure_platform_int(
+    return _ensure_platform_int(
         np.sum(np.array(labels).T * np.append(mult, [1]), axis=1).T)
 
 
@@ -4351,7 +4678,7 @@ def _get_blkno_placements(blknos, blk_count, group=True):
 
     """
 
-    blknos = com._ensure_int64(blknos)
+    blknos = _ensure_int64(blknos)
 
     # FIXME: blk_count is unused, but it may avoid the use of dicts in cython
     for blkno, indexer in lib.get_blkno_indexers(blknos, group):
@@ -4387,15 +4714,42 @@ def items_overlap_with_suffix(left, lsuffix, right, rsuffix):
                 _transform_index(right, rrenamer))
 
 
-def _transform_index(index, func):
+def _safe_reshape(arr, new_shape):
+    """
+    If possible, reshape `arr` to have shape `new_shape`,
+    with a couple of exceptions (see gh-13012):
+
+    1) If `arr` is a Categorical or Index, `arr` will be
+       returned as is.
+    2) If `arr` is a Series, the `_values` attribute will
+       be reshaped and returned.
+
+    Parameters
+    ----------
+    arr : array-like, object to be reshaped
+    new_shape : int or tuple of ints, the new shape
+    """
+    if isinstance(arr, ABCSeries):
+        arr = arr._values
+    if not isinstance(arr, Categorical):
+        arr = arr.reshape(new_shape)
+    return arr
+
+
+def _transform_index(index, func, level=None):
     """
     Apply function to all values found in index.
 
     This includes transforming multiindex entries separately.
+    Only apply function to one level of the MultiIndex if level is specified.
 
     """
     if isinstance(index, MultiIndex):
-        items = [tuple(func(y) for y in x) for x in index]
+        if level is not None:
+            items = [tuple(func(y) if i == level else y
+                           for i, y in enumerate(x)) for x in index]
+        else:
+            items = [tuple(func(y) for y in x) for x in index]
         return MultiIndex.from_tuples(items, names=index.names)
     else:
         items = [func(x) for x in index]
@@ -4441,8 +4795,13 @@ def _putmask_smart(v, m, n):
         pass
 
     # change the dtype
-    dtype, _ = com._maybe_promote(n.dtype)
-    nv = v.astype(dtype)
+    dtype, _ = maybe_promote(n.dtype)
+
+    if is_extension_type(v.dtype) and is_object_dtype(dtype):
+        nv = v.get_values(dtype)
+    else:
+        nv = v.astype(dtype)
+
     try:
         nv[m] = n[m]
     except ValueError:
@@ -4468,10 +4827,9 @@ def concatenate_block_managers(mgrs_indexers, axes, concat_axis, copy):
         [get_mgr_concatenation_plan(mgr, indexers)
          for mgr, indexers in mgrs_indexers], concat_axis)
 
-    blocks = [make_block(concatenate_join_units(join_units, concat_axis,
-                                                copy=copy),
-                         placement=placement)
-              for placement, join_units in concat_plan]
+    blocks = [make_block(
+        concatenate_join_units(join_units, concat_axis, copy=copy),
+        placement=placement) for placement, join_units in concat_plan]
 
     return BlockManager(blocks, axes)
 
@@ -4507,9 +4865,9 @@ def get_empty_dtype_and_na(join_units):
         if dtype is None:
             continue
 
-        if com.is_categorical_dtype(dtype):
+        if is_categorical_dtype(dtype):
             upcast_cls = 'category'
-        elif com.is_datetimetz(dtype):
+        elif is_datetimetz(dtype):
             upcast_cls = 'datetimetz'
         elif issubclass(dtype.type, np.bool_):
             upcast_cls = 'bool'
@@ -4519,6 +4877,8 @@ def get_empty_dtype_and_na(join_units):
             upcast_cls = 'datetime'
         elif is_timedelta64_dtype(dtype):
             upcast_cls = 'timedelta'
+        elif is_float_dtype(dtype) or is_numeric_dtype(dtype):
+            upcast_cls = dtype.name
         else:
             upcast_cls = 'float'
 
@@ -4543,8 +4903,6 @@ def get_empty_dtype_and_na(join_units):
             return np.dtype(np.bool_), None
     elif 'category' in upcast_classes:
         return np.dtype(np.object_), np.nan
-    elif 'float' in upcast_classes:
-        return np.dtype(np.float64), np.nan
     elif 'datetimetz' in upcast_classes:
         dtype = upcast_classes['datetimetz']
         return dtype[0], tslib.iNaT
@@ -4553,7 +4911,17 @@ def get_empty_dtype_and_na(join_units):
     elif 'timedelta' in upcast_classes:
         return np.dtype('m8[ns]'), tslib.iNaT
     else:  # pragma
-        raise AssertionError("invalid dtype determination in get_concat_dtype")
+        g = np.find_common_type(upcast_classes, [])
+        if is_float_dtype(g):
+            return g, g.type(np.nan)
+        elif is_numeric_dtype(g):
+            if has_none_blocks:
+                return np.float64, np.nan
+            else:
+                return g, None
+
+    msg = "invalid dtype determination in get_concat_dtype"
+    raise AssertionError(msg)
 
 
 def concatenate_join_units(join_units, concat_axis, copy):
@@ -4576,7 +4944,7 @@ def concatenate_join_units(join_units, concat_axis, copy):
         if copy and concat_values.base is not None:
             concat_values = concat_values.copy()
     else:
-        concat_values = com._concat_compat(to_concat, axis=concat_axis)
+        concat_values = _concat._concat_compat(to_concat, axis=concat_axis)
 
     return concat_values
 
@@ -4604,8 +4972,8 @@ def get_mgr_concatenation_plan(mgr, indexers):
 
     if 0 in indexers:
         ax0_indexer = indexers.pop(0)
-        blknos = com.take_1d(mgr._blknos, ax0_indexer, fill_value=-1)
-        blklocs = com.take_1d(mgr._blklocs, ax0_indexer, fill_value=-1)
+        blknos = algos.take_1d(mgr._blknos, ax0_indexer, fill_value=-1)
+        blklocs = algos.take_1d(mgr._blklocs, ax0_indexer, fill_value=-1)
     else:
 
         if mgr._is_single_block:
@@ -4753,6 +5121,7 @@ def trim_join_unit(join_unit, length):
 
 
 class JoinUnit(object):
+
     def __init__(self, block, shape, indexers=None):
         # Passing shape explicitly is required for cases when block is None.
         if indexers is None:
@@ -4782,8 +5151,8 @@ class JoinUnit(object):
         if not self.needs_filling:
             return self.block.dtype
         else:
-            return com._get_dtype(com._maybe_promote(self.block.dtype,
-                                                     self.block.fill_value)[0])
+            return _get_dtype(maybe_promote(self.block.dtype,
+                                            self.block.fill_value)[0])
 
         return self._dtype
 
@@ -4801,6 +5170,11 @@ class JoinUnit(object):
         values = self.block.values
         if self.block.is_categorical:
             values_flat = values.categories
+        elif self.block.is_sparse:
+            # fill_value is not NaN and have holes
+            if not values._null_fill_value and values.sp_index.ngaps > 0:
+                return False
+            values_flat = values.ravel(order='K')
         else:
             values_flat = values.ravel(order='K')
         total_len = values_flat.shape[0]
@@ -4812,7 +5186,6 @@ class JoinUnit(object):
         return True
 
     def get_reindexed_values(self, empty_dtype, upcasted_na):
-
         if upcasted_na is None:
             # No upcasting is necessary
             fill_value = self.block.fill_value
@@ -4833,6 +5206,8 @@ class JoinUnit(object):
                     pass
                 elif getattr(self.block, 'is_categorical', False):
                     pass
+                elif getattr(self.block, 'is_sparse', False):
+                    pass
                 else:
                     missing_arr = np.empty(self.shape, dtype=empty_dtype)
                     missing_arr.fill(fill_value)
@@ -4847,6 +5222,8 @@ class JoinUnit(object):
                 # External code requested filling/upcasting, bool values must
                 # be upcasted to object to avoid being upcasted to numeric.
                 values = self.block.astype(np.object_).values
+            elif self.block.is_categorical:
+                values = self.block.values
             else:
                 # No dtype upcasting is done here, it will be performed during
                 # concatenation itself.
@@ -4860,8 +5237,8 @@ class JoinUnit(object):
 
         else:
             for ax, indexer in self.indexers.items():
-                values = com.take_nd(values, indexer, axis=ax,
-                                     fill_value=fill_value)
+                values = algos.take_nd(values, indexer, axis=ax,
+                                       fill_value=fill_value)
 
         return values
 

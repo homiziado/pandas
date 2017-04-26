@@ -4,6 +4,8 @@ import sys
 import struct
 import subprocess
 import codecs
+import locale
+import importlib
 
 
 def get_sys_info():
@@ -46,6 +48,7 @@ def get_sys_info():
             ("byteorder", "%s" % sys.byteorder),
             ("LC_ALL", "%s" % os.environ.get('LC_ALL', "None")),
             ("LANG", "%s" % os.environ.get('LANG', "None")),
+            ("LOCALE", "%s.%s" % locale.getlocale()),
 
         ])
     except:
@@ -55,19 +58,17 @@ def get_sys_info():
 
 
 def show_versions(as_json=False):
-    import imp
     sys_info = get_sys_info()
 
     deps = [
         # (MODULE_NAME, f(mod) -> mod version)
         ("pandas", lambda mod: mod.__version__),
-        ("nose", lambda mod: mod.__version__),
+        ("pytest", lambda mod: mod.__version__),
         ("pip", lambda mod: mod.__version__),
         ("setuptools", lambda mod: mod.__version__),
         ("Cython", lambda mod: mod.__version__),
         ("numpy", lambda mod: mod.version.version),
         ("scipy", lambda mod: mod.version.version),
-        ("statsmodels", lambda mod: mod.__version__),
         ("xarray", lambda mod: mod.__version__),
         ("IPython", lambda mod: mod.__version__),
         ("sphinx", lambda mod: mod.__version__),
@@ -78,6 +79,7 @@ def show_versions(as_json=False):
         ("bottleneck", lambda mod: mod.__version__),
         ("tables", lambda mod: mod.__version__),
         ("numexpr", lambda mod: mod.__version__),
+        ("feather", lambda mod: mod.__version__),
         ("matplotlib", lambda mod: mod.__version__),
         ("openpyxl", lambda mod: mod.__version__),
         ("xlrd", lambda mod: mod.__VERSION__),
@@ -86,22 +88,21 @@ def show_versions(as_json=False):
         ("lxml", lambda mod: mod.etree.__version__),
         ("bs4", lambda mod: mod.__version__),
         ("html5lib", lambda mod: mod.__version__),
-        ("httplib2", lambda mod: mod.__version__),
-        ("apiclient", lambda mod: mod.__version__),
         ("sqlalchemy", lambda mod: mod.__version__),
         ("pymysql", lambda mod: mod.__version__),
         ("psycopg2", lambda mod: mod.__version__),
         ("jinja2", lambda mod: mod.__version__),
-        ("boto", lambda mod: mod.__version__)
+        ("s3fs", lambda mod: mod.__version__),
+        ("pandas_gbq", lambda mod: mod.__version__),
+        ("pandas_datareader", lambda mod: mod.__version__)
     ]
 
     deps_blob = list()
     for (modname, ver_f) in deps:
         try:
-            try:
-                mod = imp.load_module(modname, *imp.find_module(modname))
-            except (ImportError):
-                import importlib
+            if modname in sys.modules:
+                mod = sys.modules[modname]
+            else:
                 mod = importlib.import_module(modname)
             ver = ver_f(mod)
             deps_blob.append((modname, ver))
@@ -150,6 +151,7 @@ def main():
     show_versions(as_json=options.json)
 
     return 0
+
 
 if __name__ == "__main__":
     sys.exit(main())

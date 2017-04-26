@@ -113,7 +113,7 @@ pandas objects provide intercompatibility between ``NaT`` and ``NaN``.
    df2 = df.copy()
    df2['timestamp'] = pd.Timestamp('20120101')
    df2
-   df2.ix[['a','c','h'],['one','timestamp']] = np.nan
+   df2.loc[['a','c','h'],['one','timestamp']] = np.nan
    df2
    df2.get_dtype_counts()
 
@@ -155,9 +155,9 @@ objects.
 .. ipython:: python
    :suppress:
 
-   df = df2.ix[:, ['one', 'two', 'three']]
-   a = df2.ix[:5, ['one', 'two']].fillna(method='pad')
-   b = df2.ix[:5, ['one', 'two', 'three']]
+   df = df2.loc[:, ['one', 'two', 'three']]
+   a = df2.loc[df2.index[:5], ['one', 'two']].fillna(method='pad')
+   b = df2.loc[df2.index[:5], ['one', 'two', 'three']]
 
 .. ipython:: python
 
@@ -237,7 +237,7 @@ we can use the `limit` keyword:
 .. ipython:: python
    :suppress:
 
-   df.ix[2:4, :] = np.nan
+   df.iloc[2:4, :] = np.nan
 
 .. ipython:: python
 
@@ -392,9 +392,12 @@ The ``method`` argument gives access to fancier interpolation methods.
 If you have scipy_ installed, you can set pass the name of a 1-d interpolation routine to ``method``.
 You'll want to consult the full scipy interpolation documentation_ and reference guide_ for details.
 The appropriate interpolation method will depend on the type of data you are working with.
-For example, if you are dealing with a time series that is growing at an increasing rate,
-``method='quadratic'`` may be appropriate.  If you have values approximating a cumulative
-distribution function, then ``method='pchip'`` should work well.
+
+* If you are dealing with a time series that is growing at an increasing rate,
+  ``method='quadratic'`` may be appropriate.
+* If you have values approximating a cumulative distribution function,
+  then ``method='pchip'`` should work well.
+* To fill missing values with goal of smooth plotting, use ``method='akima'``.
 
 .. warning::
 
@@ -405,6 +408,8 @@ distribution function, then ``method='pchip'`` should work well.
    df.interpolate(method='barycentric')
 
    df.interpolate(method='pchip')
+
+   df.interpolate(method='akima')
 
 When interpolating via a polynomial or spline approximation, you must also specify
 the degree or order of the approximation:

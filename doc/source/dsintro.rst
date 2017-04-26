@@ -41,12 +41,6 @@ categories of functionality and methods in separate sections.
 Series
 ------
 
-.. warning::
-
-   In 0.13.0 ``Series`` has internally been refactored to no longer sub-class ``ndarray``
-   but instead subclass ``NDFrame``, similarly to the rest of the pandas containers. This should be
-   a transparent change with only very limited API implications (See the :ref:`Internal Refactoring<whatsnew_0130.refactoring>`)
-
 :class:`Series` is a one-dimensional labeled array capable of holding any data
 type (integers, strings, floating point numbers, Python objects, etc.). The axis
 labels are collectively referred to as the **index**. The basic method to create a Series is to call:
@@ -159,7 +153,7 @@ Vectorized operations and label alignment with Series
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 When doing data analysis, as with raw NumPy arrays looping through Series
-value-by-value is usually not necessary. Series can be also be passed into most
+value-by-value is usually not necessary. Series can also be passed into most
 NumPy methods expecting an ndarray.
 
 
@@ -720,10 +714,25 @@ option:
 
    pd.DataFrame(np.random.randn(3, 12))
 
+You can adjust the max width of the individual columns by setting ``display.max_colwidth``
+
+.. ipython:: python
+
+   datafile={'filename': ['filename_01','filename_02'],
+             'path': ["media/user_name/storage/folder_01/filename_01",
+                      "media/user_name/storage/folder_02/filename_02"]}
+
+   pd.set_option('display.max_colwidth',30)
+   pd.DataFrame(datafile)
+
+   pd.set_option('display.max_colwidth',100)
+   pd.DataFrame(datafile)
+
 .. ipython:: python
    :suppress:
 
    pd.reset_option('display.width')
+   pd.reset_option('display.max_colwidth')
 
 You can also disable this feature via the ``expand_frame_repr`` option.
 This will print the table in one block.
@@ -754,6 +763,11 @@ completion mechanism so they can be tab-completed:
 Panel
 -----
 
+.. warning::
+
+    In 0.20.0, ``Panel`` is deprecated and will be removed in
+    a future version. See the section :ref:`Deprecate Panel <dsintro.deprecate_panel>`.
+
 Panel is a somewhat less-used, but still important container for 3-dimensional
 data. The term `panel data <http://en.wikipedia.org/wiki/Panel_data>`__ is
 derived from econometrics and is partially responsible for the name pandas:
@@ -774,6 +788,7 @@ From 3D ndarray with optional axis labels
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. ipython:: python
+   :okwarning:
 
    wp = pd.Panel(np.random.randn(2, 5, 4), items=['Item1', 'Item2'],
                  major_axis=pd.date_range('1/1/2000', periods=5),
@@ -785,6 +800,7 @@ From dict of DataFrame objects
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. ipython:: python
+   :okwarning:
 
    data = {'Item1' : pd.DataFrame(np.random.randn(4, 3)),
            'Item2' : pd.DataFrame(np.random.randn(4, 2))}
@@ -807,6 +823,7 @@ dictionary of DataFrames as above, and the following named parameters:
 For example, compare to the construction above:
 
 .. ipython:: python
+   :okwarning:
 
    pd.Panel.from_dict(data, orient='minor')
 
@@ -815,6 +832,7 @@ DataFrame objects with mixed-type columns, all of the data will get upcasted to
 ``dtype=object`` unless you pass ``orient='minor'``:
 
 .. ipython:: python
+   :okwarning:
 
    df = pd.DataFrame({'a': ['foo', 'bar', 'baz'],
                       'b': np.random.randn(3)})
@@ -842,6 +860,7 @@ This method was introduced in v0.7 to replace ``LongPanel.to_long``, and convert
 a DataFrame with a two-level index to a Panel.
 
 .. ipython:: python
+   :okwarning:
 
    midx = pd.MultiIndex(levels=[['one', 'two'], ['x','y']], labels=[[1,1,0,0],[1,0,1,0]])
    df = pd.DataFrame({'A' : [1, 2, 3, 4], 'B': [5, 6, 7, 8]}, index=midx)
@@ -871,6 +890,7 @@ A Panel can be rearranged using its ``transpose`` method (which does not make a
 copy by default unless the data are heterogeneous):
 
 .. ipython:: python
+   :okwarning:
 
    wp.transpose(2, 0, 1)
 
@@ -900,6 +920,7 @@ Squeezing
 Another way to change the dimensionality of an object is to ``squeeze`` a 1-len object, similar to ``wp['Item1']``
 
 .. ipython:: python
+   :okwarning:
 
    wp.reindex(items=['Item1']).squeeze()
    wp.reindex(items=['Item1'], minor=['B']).squeeze()
@@ -914,6 +935,7 @@ for more on this. To convert a Panel to a DataFrame, use the ``to_frame``
 method:
 
 .. ipython:: python
+   :okwarning:
 
    panel = pd.Panel(np.random.randn(3, 5, 4), items=['one', 'two', 'three'],
                     major_axis=pd.date_range('1/1/2000', periods=5),
@@ -921,124 +943,62 @@ method:
    panel.to_frame()
 
 
-.. _dsintro.panel4d:
+.. _dsintro.deprecate_panel:
 
-Panel4D (Experimental)
-----------------------
+Deprecate Panel
+---------------
 
-``Panel4D`` is a 4-Dimensional named container very much like a ``Panel``, but
-having 4 named dimensions. It is intended as a test bed for more N-Dimensional named
-containers.
+Over the last few years, pandas has increased in both breadth and depth, with new features,
+datatype support, and manipulation routines. As a result, supporting efficient indexing and functional
+routines for ``Series``, ``DataFrame`` and ``Panel`` has contributed to an increasingly fragmented and
+difficult-to-understand codebase.
 
-  - **labels**: axis 0, each item corresponds to a Panel contained inside
-  - **items**: axis 1, each item corresponds to a DataFrame contained inside
-  - **major_axis**: axis 2, it is the **index** (rows) of each of the
-    DataFrames
-  - **minor_axis**: axis 3, it is the **columns** of each of the DataFrames
+The 3-D structure of a ``Panel`` is much less common for many types of data analysis,
+than the 1-D of the ``Series`` or the 2-D of the ``DataFrame``. Going forward it makes sense for
+pandas to focus on these areas exclusively.
 
-``Panel4D`` is a sub-class of ``Panel``, so most methods that work on Panels are
-applicable to Panel4D. The following methods are disabled:
+Oftentimes, one can simply use a MultiIndex ``DataFrame`` for easily working with higher dimensional data.
 
-  - ``join , to_frame , to_excel , to_sparse , groupby``
-
-Construction of Panel4D works in a very similar manner to a ``Panel``
-
-From 4D ndarray with optional axis labels
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In additon, the ``xarray`` package was built from the ground up, specifically in order to
+support the multi-dimensional analysis that is one of ``Panel`` s main usecases.
+`Here is a link to the xarray panel-transition documentation <http://xarray.pydata.org/en/stable/pandas.html#panel-transition>`__.
 
 .. ipython:: python
+   :okwarning:
 
-   p4d = pd.Panel4D(np.random.randn(2, 2, 5, 4),
-                    labels=['Label1','Label2'],
-                    items=['Item1', 'Item2'],
-                    major_axis=pd.date_range('1/1/2000', periods=5),
-                    minor_axis=['A', 'B', 'C', 'D'])
-   p4d
+   p = tm.makePanel()
+   p
 
-
-From dict of Panel objects
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Convert to a MultiIndex DataFrame
 
 .. ipython:: python
+   :okwarning:
 
-   data = { 'Label1' : pd.Panel({ 'Item1' : pd.DataFrame(np.random.randn(4, 3)) }),
-            'Label2' : pd.Panel({ 'Item2' : pd.DataFrame(np.random.randn(4, 2)) }) }
-   pd.Panel4D(data)
+   p.to_frame()
 
-Note that the values in the dict need only be **convertible to Panels**.
-Thus, they can be any of the other valid inputs to Panel as per above.
-
-Slicing
-~~~~~~~
-
-Slicing works in a similar manner to a Panel. ``[]`` slices the first dimension.
-``.ix`` allows you to slice arbitrarily and get back lower dimensional objects
+Alternatively, one can convert to an xarray ``DataArray``.
 
 .. ipython:: python
+   :okwarning:
 
-   p4d['Label1']
+   p.to_xarray()
 
-4D -> Panel
-
-.. ipython:: python
-
-   p4d.ix[:,:,:,'A']
-
-4D -> DataFrame
-
-.. ipython:: python
-
-   p4d.ix[:,:,0,'A']
-
-4D -> Series
-
-.. ipython:: python
-
-   p4d.ix[:,0,0,'A']
-
-Transposing
-~~~~~~~~~~~
-
-A Panel4D can be rearranged using its ``transpose`` method (which does not make a
-copy by default unless the data are heterogeneous):
-
-.. ipython:: python
-
-   p4d.transpose(3, 2, 1, 0)
+You can see the full-documentation for the `xarray package <http://xarray.pydata.org/en/stable/>`__.
 
 .. _dsintro.panelnd:
+.. _dsintro.panel4d:
 
-PanelND (Experimental)
-----------------------
+Panel4D and PanelND (Deprecated)
+--------------------------------
 
-PanelND is a module with a set of factory functions to enable a user to construct N-dimensional named
-containers like Panel4D, with a custom set of axis labels. Thus a domain-specific container can easily be
-created.
+.. warning::
 
-The following creates a Panel5D. A new panel type object must be sliceable into a lower dimensional object.
-Here we slice to a Panel4D.
+    In 0.19.0 ``Panel4D`` and ``PanelND`` are deprecated and will be removed in
+    a future version. The recommended way to represent these types of
+    n-dimensional data are with the
+    `xarray package <http://xarray.pydata.org/en/stable/>`__.
+    Pandas provides a :meth:`~Panel4D.to_xarray` method to automate
+    this conversion.
 
-.. ipython:: python
-
-    from pandas.core import panelnd
-    Panel5D = panelnd.create_nd_panel_factory(
-        klass_name   = 'Panel5D',
-        orders  = [ 'cool', 'labels','items','major_axis','minor_axis'],
-        slices  = { 'labels' : 'labels', 'items' : 'items',
-	                'major_axis' : 'major_axis', 'minor_axis' : 'minor_axis' },
-        slicer  = pd.Panel4D,
-        aliases = { 'major' : 'major_axis', 'minor' : 'minor_axis' },
-        stat_axis    = 2)
-
-    p5d = Panel5D(dict(C1 = p4d))
-    p5d
-
-    # print a slice of our 5D
-    p5d.ix['C1',:,:,0:3,:]
-
-    # transpose it
-    p5d.transpose(1,2,3,4,0)
-
-    # look at the shape & dim
-    p5d.shape
-    p5d.ndim
+See the `docs of a previous version <http://pandas.pydata.org/pandas-docs/version/0.18.1/dsintro.html#panel4d-experimental>`__
+for documentation on these objects.

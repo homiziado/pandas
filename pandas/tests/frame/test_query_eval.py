@@ -3,7 +3,7 @@
 from __future__ import print_function
 
 import operator
-import nose
+import pytest
 from itertools import product
 
 from pandas.compat import (zip, range, lrange, StringIO)
@@ -15,10 +15,10 @@ from numpy.random import randn
 
 from pandas.util.testing import (assert_series_equal,
                                  assert_frame_equal,
-                                 assertRaises,
                                  makeCustomDataframe as mkdf)
 
 import pandas.util.testing as tm
+from pandas.core.computation import _NUMEXPR_INSTALLED
 
 from pandas.tests.frame.common import TestData
 
@@ -29,21 +29,65 @@ ENGINES = 'python', 'numexpr'
 
 def skip_if_no_pandas_parser(parser):
     if parser != 'pandas':
-        raise nose.SkipTest("cannot evaluate with parser {0!r}".format(parser))
+        pytest.skip("cannot evaluate with parser {0!r}".format(parser))
 
 
 def skip_if_no_ne(engine='numexpr'):
     if engine == 'numexpr':
-        try:
-            import numexpr as ne  # noqa
-        except ImportError:
-            raise nose.SkipTest("cannot query engine numexpr when numexpr not "
-                                "installed")
+        if not _NUMEXPR_INSTALLED:
+            pytest.skip("cannot query engine numexpr when numexpr not "
+                        "installed")
+
+
+class TestCompat(tm.TestCase):
+
+    def setUp(self):
+        self.df = DataFrame({'A': [1, 2, 3]})
+        self.expected1 = self.df[self.df.A > 0]
+        self.expected2 = self.df.A + 1
+
+    def test_query_default(self):
+
+        # GH 12749
+        # this should always work, whether _NUMEXPR_INSTALLED or not
+        df = self.df
+        result = df.query('A>0')
+        assert_frame_equal(result, self.expected1)
+        result = df.eval('A+1')
+        assert_series_equal(result, self.expected2, check_names=False)
+
+    def test_query_None(self):
+
+        df = self.df
+        result = df.query('A>0', engine=None)
+        assert_frame_equal(result, self.expected1)
+        result = df.eval('A+1', engine=None)
+        assert_series_equal(result, self.expected2, check_names=False)
+
+    def test_query_python(self):
+
+        df = self.df
+        result = df.query('A>0', engine='python')
+        assert_frame_equal(result, self.expected1)
+        result = df.eval('A+1', engine='python')
+        assert_series_equal(result, self.expected2, check_names=False)
+
+    def test_query_numexpr(self):
+
+        df = self.df
+        if _NUMEXPR_INSTALLED:
+            result = df.query('A>0', engine='numexpr')
+            assert_frame_equal(result, self.expected1)
+            result = df.eval('A+1', engine='numexpr')
+            assert_series_equal(result, self.expected2, check_names=False)
+        else:
+            pytest.raises(ImportError,
+                          lambda: df.query('A>0', engine='numexpr'))
+            pytest.raises(ImportError,
+                          lambda: df.eval('A+1', engine='numexpr'))
 
 
 class TestDataFrameEval(tm.TestCase, TestData):
-
-    _multiprocess_can_split_ = True
 
     def test_ops(self):
 
@@ -89,10 +133,37 @@ class TestDataFrameEval(tm.TestCase, TestData):
         result = (1 - np.isnan(df)).iloc[0:25]
         assert_frame_equal(result, expected)
 
+    def test_query_non_str(self):
+        # GH 11485
+        df = pd.DataFrame({'A': [1, 2, 3], 'B': ['a', 'b', 'b']})
+
+        msg = "expr must be a string to be evaluated"
+        with tm.assert_raises_regex(ValueError, msg):
+            df.query(lambda x: x.B == "b")
+
+        with tm.assert_raises_regex(ValueError, msg):
+            df.query(111)
+
+    def test_query_empty_string(self):
+        # GH 13139
+        df = pd.DataFrame({'A': [1, 2, 3]})
+
+        msg = "expr cannot be an empty string"
+        with tm.assert_raises_regex(ValueError, msg):
+            df.query('')
+
+    def test_eval_resolvers_as_list(self):
+        # GH 14095
+        df = DataFrame(randn(10, 2), columns=list('ab'))
+        dict1 = {'a': 1}
+        dict2 = {'b': 2}
+        self.assertTrue(df.eval('a + b', resolvers=[dict1, dict2]) ==
+                        dict1['a'] + dict2['b'])
+        self.assertTrue(pd.eval('a + b', resolvers=[dict1, dict2]) ==
+                        dict1['a'] + dict2['b'])
+
 
 class TestDataFrameQueryWithMultiIndex(tm.TestCase):
-
-    _multiprocess_can_split_ = True
 
     def check_query_with_named_multiindex(self, parser, engine):
         tm.skip_if_no_ne(engine)
@@ -312,7 +383,7 @@ class TestDataFrameQueryWithMultiIndex(tm.TestCase):
         tm.skip_if_no_ne()
         p = tm.makePanel(7)
         p.items = tm.makeCustomIndex(len(p.items), nlevels=2)
-        with tm.assertRaises(NotImplementedError):
+        with pytest.raises(NotImplementedError):
             pd.eval('p + 1', parser=parser, engine=engine)
 
     def test_raise_on_panel4d_with_multiindex(self):
@@ -323,7 +394,7 @@ class TestDataFrameQueryWithMultiIndex(tm.TestCase):
         tm.skip_if_no_ne()
         p4d = tm.makePanel4D(7)
         p4d.items = tm.makeCustomIndex(len(p4d.items), nlevels=2)
-        with tm.assertRaises(NotImplementedError):
+        with pytest.raises(NotImplementedError):
             pd.eval('p4d + 1', parser=parser, engine=engine)
 
 
@@ -412,7 +483,7 @@ class TestDataFrameQueryNumExprPandas(tm.TestCase):
         df = DataFrame(d)
         df.loc[np.random.rand(n) > 0.5, 'dates1'] = pd.NaT
         df.set_index('dates1', inplace=True, drop=True)
-        res = df.query('index < 20130101 < dates3', engine=engine,
+        res = df.query('dates1 < 20130101 < dates3', engine=engine,
                        parser=parser)
         expec = df[(df.index.to_series() < '20130101') &
                    ('20130101' < df.dates3)]
@@ -428,18 +499,18 @@ class TestDataFrameQueryNumExprPandas(tm.TestCase):
         ops = '==', '!=', '<', '>', '<=', '>='
 
         for op in ops:
-            with tm.assertRaises(TypeError):
+            with pytest.raises(TypeError):
                 df.query('dates %s nondate' % op, parser=parser, engine=engine)
 
     def test_query_syntax_error(self):
         engine, parser = self.engine, self.parser
         df = DataFrame({"i": lrange(10), "+": lrange(3, 13),
                         "r": lrange(4, 14)})
-        with tm.assertRaises(SyntaxError):
+        with pytest.raises(SyntaxError):
             df.query('i - +', engine=engine, parser=parser)
 
     def test_query_scope(self):
-        from pandas.computation.ops import UndefinedVariableError
+        from pandas.core.computation.ops import UndefinedVariableError
         engine, parser = self.engine, self.parser
         skip_if_no_pandas_parser(parser)
 
@@ -455,34 +526,34 @@ class TestDataFrameQueryNumExprPandas(tm.TestCase):
         assert_frame_equal(res, expected)
 
         # no local variable c
-        with tm.assertRaises(UndefinedVariableError):
+        with pytest.raises(UndefinedVariableError):
             df.query('@a > b > @c', engine=engine, parser=parser)
 
         # no column named 'c'
-        with tm.assertRaises(UndefinedVariableError):
+        with pytest.raises(UndefinedVariableError):
             df.query('@a > b > c', engine=engine, parser=parser)
 
     def test_query_doesnt_pickup_local(self):
-        from pandas.computation.ops import UndefinedVariableError
+        from pandas.core.computation.ops import UndefinedVariableError
 
         engine, parser = self.engine, self.parser
         n = m = 10
         df = DataFrame(np.random.randint(m, size=(n, 3)), columns=list('abc'))
 
         # we don't pick up the local 'sin'
-        with tm.assertRaises(UndefinedVariableError):
+        with pytest.raises(UndefinedVariableError):
             df.query('sin > 5', engine=engine, parser=parser)
 
     def test_query_builtin(self):
-        from pandas.computation.engines import NumExprClobberingError
+        from pandas.core.computation.engines import NumExprClobberingError
         engine, parser = self.engine, self.parser
 
         n = m = 10
         df = DataFrame(np.random.randint(m, size=(n, 3)), columns=list('abc'))
 
         df.index.name = 'sin'
-        with tm.assertRaisesRegexp(NumExprClobberingError,
-                                   'Variables in expression.+'):
+        with tm.assert_raises_regex(NumExprClobberingError,
+                                    'Variables in expression.+'):
             df.query('sin > 5', engine=engine, parser=parser)
 
     def test_query(self):
@@ -552,12 +623,12 @@ class TestDataFrameQueryNumExprPandas(tm.TestCase):
         assert_frame_equal(result, expected)
 
     def test_nested_raises_on_local_self_reference(self):
-        from pandas.computation.ops import UndefinedVariableError
+        from pandas.core.computation.ops import UndefinedVariableError
 
         df = DataFrame(np.random.randn(5, 3))
 
         # can't reference ourself b/c we're a local so @ is necessary
-        with tm.assertRaises(UndefinedVariableError):
+        with pytest.raises(UndefinedVariableError):
             df.query('df > 0', engine=self.engine, parser=self.parser)
 
     def test_local_syntax(self):
@@ -611,12 +682,12 @@ class TestDataFrameQueryNumExprPandas(tm.TestCase):
         assert_frame_equal(result, expected)
 
     def test_query_undefined_local(self):
-        from pandas.computation.ops import UndefinedVariableError
+        from pandas.core.computation.ops import UndefinedVariableError
         engine, parser = self.engine, self.parser
         skip_if_no_pandas_parser(parser)
         df = DataFrame(np.random.rand(10, 2), columns=list('ab'))
-        with tm.assertRaisesRegexp(UndefinedVariableError,
-                                   "local variable 'c' is not defined"):
+        with tm.assert_raises_regex(UndefinedVariableError,
+                                    "local variable 'c' is not defined"):
             df.query('a == @c', engine=engine, parser=parser)
 
     def test_index_resolvers_come_after_columns_with_the_same_name(self):
@@ -727,11 +798,11 @@ class TestDataFrameQueryNumExprPython(TestDataFrameQueryNumExprPandas):
         df['dates3'] = date_range('1/1/2014', periods=n)
         df.loc[np.random.rand(n) > 0.5, 'dates1'] = pd.NaT
         df.set_index('dates1', inplace=True, drop=True)
-        with tm.assertRaises(NotImplementedError):
+        with pytest.raises(NotImplementedError):
             df.query('index < 20130101 < dates3', engine=engine, parser=parser)
 
     def test_nested_scope(self):
-        from pandas.computation.ops import UndefinedVariableError
+        from pandas.core.computation.ops import UndefinedVariableError
         engine = self.engine
         parser = self.parser
         # smoke test
@@ -743,10 +814,10 @@ class TestDataFrameQueryNumExprPython(TestDataFrameQueryNumExprPandas):
         df2 = DataFrame(np.random.randn(5, 3))
 
         # don't have the pandas parser
-        with tm.assertRaises(SyntaxError):
+        with pytest.raises(SyntaxError):
             df.query('(@df>0) & (@df2>0)', engine=engine, parser=parser)
 
-        with tm.assertRaises(UndefinedVariableError):
+        with pytest.raises(UndefinedVariableError):
             df.query('(df>0) & (df2>0)', engine=engine, parser=parser)
 
         expected = df[(df > 0) & (df2 > 0)]
@@ -821,8 +892,9 @@ class TestDataFrameQueryStrings(tm.TestCase):
 
             for lhs, op, rhs in zip(lhs, ops, rhs):
                 ex = '{lhs} {op} {rhs}'.format(lhs=lhs, op=op, rhs=rhs)
-                assertRaises(NotImplementedError, df.query, ex, engine=engine,
-                             parser=parser, local_dict={'strings': df.strings})
+                pytest.raises(NotImplementedError, df.query, ex,
+                              engine=engine, parser=parser,
+                              local_dict={'strings': df.strings})
         else:
             res = df.query('"a" == strings', engine=engine, parser=parser)
             assert_frame_equal(res, expect)
@@ -865,7 +937,7 @@ class TestDataFrameQueryStrings(tm.TestCase):
 
             for lhs, op, rhs in zip(lhs, ops, rhs):
                 ex = '{lhs} {op} {rhs}'.format(lhs=lhs, op=op, rhs=rhs)
-                with tm.assertRaises(NotImplementedError):
+                with pytest.raises(NotImplementedError):
                     df.query(ex, engine=engine, parser=parser)
         else:
             res = df.query('strings == ["a", "b"]', engine=engine,
@@ -901,10 +973,10 @@ class TestDataFrameQueryStrings(tm.TestCase):
             expec = df[df.a.isin(df.b) & (df.c < df.d)]
             assert_frame_equal(res, expec)
         else:
-            with assertRaises(NotImplementedError):
+            with pytest.raises(NotImplementedError):
                 df.query('a in b', parser=parser, engine=engine)
 
-            with assertRaises(NotImplementedError):
+            with pytest.raises(NotImplementedError):
                 df.query('a in b and c < d', parser=parser, engine=engine)
 
     def test_query_with_string_columns(self):
@@ -1047,9 +1119,9 @@ class TestDataFrameEvalNumExprPandas(tm.TestCase):
         df = DataFrame({'a': [1, 2], 'b': ['c', 'd']})
         ops = '+', '-', '*', '/'
         for op in ops:
-            with tm.assertRaisesRegexp(TypeError,
-                                       "unsupported operand type\(s\) for "
-                                       ".+: '.+' and '.+'"):
+            with tm.assert_raises_regex(TypeError,
+                                        "unsupported operand type\(s\) "
+                                        "for .+: '.+' and '.+'"):
                 df.eval('a {0} b'.format(op), engine=self.engine,
                         parser=self.parser)
 
@@ -1079,8 +1151,3 @@ class TestDataFrameEvalPythonPython(TestDataFrameEvalNumExprPython):
     def setUpClass(cls):
         super(TestDataFrameEvalPythonPython, cls).tearDownClass()
         cls.engine = cls.parser = 'python'
-
-
-if __name__ == '__main__':
-    nose.runmodule(argv=[__file__, '-vvs', '-x', '--pdb', '--pdb-failure'],
-                   exit=False)

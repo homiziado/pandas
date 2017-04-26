@@ -146,6 +146,46 @@ following code will cause trouble because of the regular expression meaning of
    # We need to escape the special character (for >1 len patterns)
    dollars.str.replace(r'-\$', '-')
 
+The ``replace`` method can also take a callable as replacement. It is called
+on every ``pat`` using :func:`re.sub`. The callable should expect one
+positional argument (a regex object) and return a string.
+
+.. versionadded:: 0.20.0
+
+.. ipython:: python
+
+   # Reverse every lowercase alphabetic word
+   pat = r'[a-z]+'
+   repl = lambda m: m.group(0)[::-1]
+   pd.Series(['foo 123', 'bar baz', np.nan]).str.replace(pat, repl)
+
+   # Using regex groups
+   pat = r"(?P<one>\w+) (?P<two>\w+) (?P<three>\w+)"
+   repl = lambda m: m.group('two').swapcase()
+   pd.Series(['Foo Bar Baz', np.nan]).str.replace(pat, repl)
+
+The ``replace`` method also accepts a compiled regular expression object
+from :func:`re.compile` as a pattern. All flags should be included in the
+compiled regular expression object.
+
+.. versionadded:: 0.20.0
+
+.. ipython:: python
+
+   import re
+   regex_pat = re.compile(r'^.a|dog', flags=re.IGNORECASE)
+   s3.str.replace(regex_pat, 'XX-XX ')
+
+Including a ``flags`` argument when calling ``replace`` with a compiled
+regular expression object will raise a ``ValueError``.
+
+.. ipython::
+
+    @verbatim
+    In [1]: s3.str.replace(regex_pat, 'XX-XX ', flags=re.IGNORECASE)
+    ---------------------------------------------------------------------------
+    ValueError: case and flags cannot be set when pat is a compiled regex
+
 Indexing with ``.str``
 ----------------------
 
@@ -281,7 +321,7 @@ Unlike ``extract`` (which returns only the first match),
 
 .. ipython:: python
 
-   s = pd.Series(["a1a2", "b1", "c1"], ["A", "B", "C"])
+   s = pd.Series(["a1a2", "b1", "c1"], index=["A", "B", "C"])
    s
    two_groups = '(?P<letter>[a-z])(?P<digit>[0-9])'
    s.str.extract(two_groups, expand=True)
@@ -313,6 +353,17 @@ then ``extractall(pat).xs(0, level='match')`` gives the same result as
    extractall_result
    extractall_result.xs(0, level="match")
 
+``Index`` also supports ``.str.extractall``. It returns a ``DataFrame`` which has the
+same result as a ``Series.str.extractall`` with a default index (starts from 0).
+
+.. versionadded:: 0.19.0
+
+.. ipython:: python
+
+   pd.Index(["a1a2", "b1", "c1"]).str.extractall(two_groups)
+
+   pd.Series(["a1a2", "b1", "c1"]).str.extractall(two_groups)
+
 
 Testing for Strings that Match or Contain a Pattern
 ---------------------------------------------------
@@ -321,38 +372,27 @@ You can check whether elements contain a pattern:
 
 .. ipython:: python
 
-   pattern = r'[a-z][0-9]'
+   pattern = r'[0-9][a-z]'
    pd.Series(['1', '2', '3a', '3b', '03c']).str.contains(pattern)
 
 or match a pattern:
 
-
 .. ipython:: python
 
-   pd.Series(['1', '2', '3a', '3b', '03c']).str.match(pattern, as_indexer=True)
+   pd.Series(['1', '2', '3a', '3b', '03c']).str.match(pattern)
 
 The distinction between ``match`` and ``contains`` is strictness: ``match``
 relies on strict ``re.match``, while ``contains`` relies on ``re.search``.
 
-.. warning::
-
-   In previous versions, ``match`` was for *extracting* groups,
-   returning a not-so-convenient Series of tuples. The new method ``extract``
-   (described in the previous section) is now preferred.
-
-   This old, deprecated behavior of ``match`` is still the default. As
-   demonstrated above, use the new behavior by setting ``as_indexer=True``.
-   In this mode, ``match`` is analogous to ``contains``, returning a boolean
-   Series. The new behavior will become the default behavior in a future
-   release.
-
 Methods like ``match``, ``contains``, ``startswith``, and ``endswith`` take
- an extra ``na`` argument so missing values can be considered True or False:
+an extra ``na`` argument so missing values can be considered True or False:
 
 .. ipython:: python
 
    s4 = pd.Series(['A', 'B', 'C', 'Aaba', 'Baca', np.nan, 'CABA', 'dog', 'cat'])
    s4.str.contains('A', na=False)
+
+.. _text.indicator:
 
 Creating Indicator Variables
 ----------------------------
@@ -360,10 +400,19 @@ Creating Indicator Variables
 You can extract dummy variables from string columns.
 For example if they are separated by a ``'|'``:
 
-  .. ipython:: python
+.. ipython:: python
 
-      s = pd.Series(['a', 'a|b', np.nan, 'a|c'])
-      s.str.get_dummies(sep='|')
+    s = pd.Series(['a', 'a|b', np.nan, 'a|c'])
+    s.str.get_dummies(sep='|')
+
+String ``Index`` also supports ``get_dummies`` which returns a ``MultiIndex``.
+
+.. versionadded:: 0.18.1
+
+.. ipython:: python
+
+    idx = pd.Index(['a', 'a|b', np.nan, 'a|c'])
+    idx.str.get_dummies(sep='|')
 
 See also :func:`~pandas.get_dummies`.
 
@@ -384,7 +433,7 @@ Method Summary
     :meth:`~Series.str.join`;Join strings in each element of the Series with passed separator
     :meth:`~Series.str.get_dummies`;Split strings on the delimiter returning DataFrame of dummy variables
     :meth:`~Series.str.contains`;Return boolean array if each string contains pattern/regex
-    :meth:`~Series.str.replace`;Replace occurrences of pattern/regex with some other string
+    :meth:`~Series.str.replace`;Replace occurrences of pattern/regex with some other string or the return value of a callable given the occurrence
     :meth:`~Series.str.repeat`;Duplicate values (``s.str.repeat(3)`` equivalent to ``x * 3``)
     :meth:`~Series.str.pad`;"Add whitespace to left, right, or both sides of strings"
     :meth:`~Series.str.center`;Equivalent to ``str.center``

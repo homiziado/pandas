@@ -6,7 +6,7 @@ from __future__ import division
 
 import warnings
 import numpy as np
-from pandas import lib
+from pandas.core.dtypes.common import is_scalar
 from pandas.core.api import DataFrame, Series
 from pandas.util.decorators import Substitution, Appender
 
@@ -226,7 +226,7 @@ def ensure_compat(dispatch, name, arg, func_kw=None, *args, **kwargs):
             aargs += ','
 
         def f(a, b):
-            if lib.isscalar(b):
+            if is_scalar(b):
                 return "{a}={b}".format(a=a, b=b)
             return "{a}=<{b}>".format(a=a, b=type(b).__name__)
         aargs = ','.join([f(a, b) for a, b in kwds.items() if b is not None])
@@ -271,6 +271,9 @@ def rolling_count(arg, window, **kwargs):
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('rolling', 'count', arg, window=window, **kwargs)
 
@@ -382,6 +385,7 @@ def ewmstd(arg, com=None, span=None, halflife=None, alpha=None, min_periods=0,
                          bias=bias,
                          func_kw=['bias'])
 
+
 ewmvol = ewmstd
 
 
@@ -473,6 +477,7 @@ def _rolling_func(name, desc, how=None, func_kw=None, additional_kw=''):
                              **kwargs)
     return f
 
+
 rolling_max = _rolling_func('max', 'Moving maximum.', how='max')
 rolling_min = _rolling_func('min', 'Moving minimum.', how='min')
 rolling_sum = _rolling_func('sum', 'Moving sum.')
@@ -521,6 +526,9 @@ def rolling_quantile(arg, window, quantile, min_periods=None, freq=None,
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('rolling',
                          'quantile',
@@ -570,6 +578,9 @@ def rolling_apply(arg, window, func, min_periods=None, freq=None,
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('rolling',
                          'apply',
@@ -642,6 +653,9 @@ def rolling_window(arg, window=None, win_type=None, min_periods=None,
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     func = 'mean' if mean else 'sum'
     return ensure_compat('rolling',
@@ -670,6 +684,7 @@ def _expanding_func(name, desc, func_kw=None, additional_kw=''):
                              func_kw=func_kw,
                              **kwargs)
     return f
+
 
 expanding_max = _expanding_func('max', 'Expanding maximum.')
 expanding_min = _expanding_func('min', 'Expanding minimum.')
@@ -707,6 +722,9 @@ def expanding_count(arg, freq=None):
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('expanding', 'count', arg, freq=freq)
 
@@ -735,6 +753,9 @@ def expanding_quantile(arg, quantile, min_periods=1, freq=None):
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('expanding',
                          'quantile',
@@ -818,6 +839,9 @@ def expanding_apply(arg, func, min_periods=1, freq=None,
     The `freq` keyword is used to conform time series data to a specified
     frequency by resampling the data. This is done with the default parameters
     of :meth:`~pandas.Series.resample` (i.e. using the `mean`).
+
+    To learn more about the frequency strings, please see `this link
+    <http://pandas.pydata.org/pandas-docs/stable/timeseries.html#offset-aliases>`__.
     """
     return ensure_compat('expanding',
                          'apply',

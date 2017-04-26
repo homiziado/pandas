@@ -14,9 +14,9 @@ pandas: powerful Python data analysis toolkit
 
 **Binary Installers:** http://pypi.python.org/pypi/pandas
 
-**Source Repository:** http://github.com/pydata/pandas
+**Source Repository:** http://github.com/pandas-dev/pandas
 
-**Issues & Ideas:** https://github.com/pydata/pandas/issues
+**Issues & Ideas:** https://github.com/pandas-dev/pandas/issues
 
 **Q&A Support:** http://stackoverflow.com/questions/tagged/pandas
 
@@ -92,7 +92,7 @@ Some other notes
    specialized tool.
 
  - pandas is a dependency of `statsmodels
-   <http://statsmodels.sourceforge.net>`__, making it an important part of the
+   <http://www.statsmodels.org/stable/index.html>`__, making it an important part of the
    statistical computing ecosystem in Python.
 
  - pandas has been used extensively in production in financial applications.
@@ -116,7 +116,6 @@ See the package overview for more detail about what's in the library.
     whatsnew
     install
     contributing
-    faq
     overview
     10min
     tutorials

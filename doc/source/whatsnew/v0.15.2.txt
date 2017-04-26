@@ -35,7 +35,7 @@ API changes
     df.loc[(1, 'z')]
 
     # lexically sorting
-    df2 = df.sortlevel()
+    df2 = df.sort_index()
     df2
     df2.index.lexsort_depth
     df2.loc[(1,'z')]
@@ -44,7 +44,7 @@ API changes
   whether they were "used" or not (see :issue:`8559` for the discussion).
   Previous behaviour was to return all categories:
 
-  .. code-block:: python
+  .. code-block:: ipython
 
     In [3]: cat = pd.Categorical(['a', 'b', 'a'], categories=['a', 'b', 'c'])
 
@@ -81,7 +81,7 @@ API changes
 
   Old behavior:
 
-  .. code-block:: python
+  .. code-block:: ipython
 
      In [6]: data.y
      Out[6]: 2
@@ -102,7 +102,7 @@ API changes
 
   Old behavior:
 
-  .. code-block:: python
+  .. code-block:: ipython
 
      In [1]: s = pd.Series(np.arange(3), ['a', 'b', 'c'])
      Out[1]:
@@ -163,7 +163,7 @@ Other enhancements:
      p.all()
 
 - Added support for ``utcfromtimestamp()``, ``fromtimestamp()``, and ``combine()`` on `Timestamp` class (:issue:`5351`).
-- Added Google Analytics (`pandas.io.ga`) basic documentation (:issue:`8835`). See :ref:`here<remote_data.ga>`.
+- Added Google Analytics (`pandas.io.ga`) basic documentation (:issue:`8835`). See `here<http://pandas.pydata.org/pandas-docs/version/0.15.2/remote_data.html#remote-data-ga>`__.
 - ``Timedelta`` arithmetic returns ``NotImplemented`` in unknown cases, allowing extensions by custom classes (:issue:`8813`).
 - ``Timedelta`` now supports arithemtic with ``numpy.ndarray`` objects of the appropriate dtype (numpy 1.8 or newer only) (:issue:`8884`).
 - Added ``Timedelta.to_timedelta64()`` method to the public API (:issue:`8884`).

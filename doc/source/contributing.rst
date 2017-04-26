@@ -14,14 +14,14 @@ All contributions, bug reports, bug fixes, documentation improvements,
 enhancements and ideas are welcome.
 
 If you are simply looking to start working with the *pandas* codebase, navigate to the
-`GitHub "issues" tab <https://github.com/pydata/pandas/issues>`_ and start looking through
+`GitHub "issues" tab <https://github.com/pandas-dev/pandas/issues>`_ and start looking through
 interesting issues.  There are a number of issues listed under `Docs
-<https://github.com/pydata/pandas/issues?labels=Docs&sort=updated&state=open>`_
+<https://github.com/pandas-dev/pandas/issues?labels=Docs&sort=updated&state=open>`_
 and `Difficulty Novice
-<https://github.com/pydata/pandas/issues?q=is%3Aopen+is%3Aissue+label%3A%22Difficulty+Novice%22>`_
+<https://github.com/pandas-dev/pandas/issues?q=is%3Aopen+is%3Aissue+label%3A%22Difficulty+Novice%22>`_
 where you could start out.
 
-Or maybe through using *pandas* you have an idea of you own or are looking for something
+Or maybe through using *pandas* you have an idea of your own or are looking for something
 in the documentation and thinking 'this can be improved'...you can do something
 about it!
 
@@ -51,14 +51,9 @@ Bug reports must:
       ...
       ```
 
-#. Include the full version string of *pandas* and its dependencies. In versions
-   of *pandas* after 0.12 you can use a built in function::
+#. Include the full version string of *pandas* and its dependencies. You can use the built in function::
 
-      >>> from pandas.util.print_versions import show_versions
-      >>> show_versions()
-
-   and in *pandas* 0.13.1 onwards::
-
+      >>> import pandas as pd
       >>> pd.show_versions()
 
 #. Explain why the current behavior is wrong/not desired and what you expect instead.
@@ -79,7 +74,7 @@ It can very quickly become overwhelming, but sticking to the guidelines below wi
 straightforward and mostly trouble free.  As always, if you are having difficulties please
 feel free to ask for help.
 
-The code is hosted on `GitHub <https://www.github.com/pydata/pandas>`_. To
+The code is hosted on `GitHub <https://www.github.com/pandas-dev/pandas>`_. To
 contribute you will need to sign up for a `free GitHub account
 <https://github.com/signup/free>`_. We use `Git <http://git-scm.com/>`_ for
 version control to allow many people to work together on the project.
@@ -103,21 +98,15 @@ Forking
 -------
 
 You will need your own fork to work on the code. Go to the `pandas project
-page <https://github.com/pydata/pandas>`_ and hit the ``Fork`` button. You will
+page <https://github.com/pandas-dev/pandas>`_ and hit the ``Fork`` button. You will
 want to clone your fork to your machine::
 
     git clone git@github.com:your-user-name/pandas.git pandas-yourname
     cd pandas-yourname
-    git remote add upstream git://github.com/pydata/pandas.git
+    git remote add upstream git://github.com/pandas-dev/pandas.git
 
 This creates the directory `pandas-yourname` and connects your repository to
 the upstream (main project) *pandas* repository.
-
-The testing suite will run automatically on Travis-CI once your pull request is
-submitted.  However, if you wish to run the test suite on a branch prior to
-submitting the pull request, then Travis-CI needs to be hooked up to your
-GitHub repository.  Instructions for doing so are `here
-<http://about.travis-ci.org/docs/user/getting-started/>`__.
 
 Creating a branch
 -----------------
@@ -142,7 +131,7 @@ To update this branch, you need to retrieve the changes from the master branch::
     git fetch upstream
     git rebase upstream/master
 
-This will replay your commits on top of the lastest pandas git master.  If this
+This will replay your commits on top of the latest pandas git master.  If this
 leads to merge conflicts, you must resolve these before submitting your pull
 request.  If you have uncommitted changes, you will need to ``stash`` them prior
 to updating.  This will effectively store your changes and they can be reapplied
@@ -188,7 +177,7 @@ To work in this environment, Windows users should ``activate`` it as follows::
 
       activate pandas_dev
 
-Mac OSX and Linux users should use::
+Mac OSX / Linux users should use::
 
       source activate pandas_dev
 
@@ -198,9 +187,13 @@ To view your environments::
 
       conda info -e
 
-To return to you home root environment::
+To return to your home root environment in Windows::
 
       deactivate
+
+To return to your home root environment in OSX / Linux::
+
+      source deactivate
 
 See the full conda docs `here <http://conda.pydata.org/docs>`__.
 
@@ -211,7 +204,7 @@ At this point you can easily do an *in-place* install, as detailed in the next s
 Creating a Windows development environment
 ------------------------------------------
 
-To build on Windows, you need to have compilers installed to build the extensions. You will need to install the appropriate Visual Studio compilers, VS 2008 for Python 2.7, VS 2010 for 3.4, and VS 2015 for Python 3.5.
+To build on Windows, you need to have compilers installed to build the extensions. You will need to install the appropriate Visual Studio compilers, VS 2008 for Python 2.7, VS 2010 for 3.4, and VS 2015 for Python 3.5 and 3.6.
 
 For Python 2.7, you can install the ``mingw`` compiler which will work equivalently to VS 2008::
 
@@ -221,10 +214,11 @@ or use the `Microsoft Visual Studio VC++ compiler for Python <https://www.micros
 
 For Python 3.4, you can download and install the `Windows 7.1 SDK <https://www.microsoft.com/en-us/download/details.aspx?id=8279>`__. Read the references below as there may be various gotchas during the installation.
 
-For Python 3.5, you can download and install the `Visual Studio 2015 Community Edition <https://www.visualstudio.com/en-us/downloads/visual-studio-2015-downloads-vs.aspx>`__.
+For Python 3.5 and 3.6, you can download and install the `Visual Studio 2015 Community Edition <https://www.visualstudio.com/en-us/downloads/visual-studio-2015-downloads-vs.aspx>`__.
 
-Here are some references:
+Here are some references and blogs:
 
+- https://blogs.msdn.microsoft.com/pythonengineering/2016/04/11/unable-to-find-vcvarsall-bat/
 - https://github.com/conda/conda-recipes/wiki/Building-from-Source-on-Windows-32-bit-and-64-bit
 - https://cowboyprogrammer.org/building-python-wheels-for-windows/
 - https://blog.ionelmc.ro/2014/12/21/compiling-python-extensions-on-windows/
@@ -346,19 +340,23 @@ How to build the *pandas* documentation
 Requirements
 ~~~~~~~~~~~~
 
-To build the *pandas* docs there are some extra requirements: you will need to
+First, you need to have a development environment to be able to build pandas
+(see the docs on :ref:`creating a development environment above <contributing.dev_env>`).
+Further, to build the docs, there are some extra requirements: you will need to
 have ``sphinx`` and ``ipython`` installed. `numpydoc
 <https://github.com/numpy/numpydoc>`_ is used to parse the docstrings that
 follow the Numpy Docstring Standard (see above), but you don't need to install
 this because a local copy of numpydoc is included in the *pandas* source
-code.
+code. `nbsphinx <https://nbsphinx.readthedocs.io/>`_ is required to build
+the Jupyter notebooks included in the documentation.
 
-It is easiest to :ref:`create a development environment <contributing.dev_env>`, then install::
+If you have a conda environment named ``pandas_dev``, you can install the extra
+requirements with::
 
-      conda install -n pandas_dev sphinx ipython
+      conda install -n pandas_dev sphinx ipython nbconvert nbformat
+      conda install -n pandas_dev -c conda-forge nbsphinx
 
-Furthermore, it is recommended to have all `optional dependencies
-<http://pandas.pydata.org/pandas-docs/dev/install.html#optional-dependencies>`_
+Furthermore, it is recommended to have all :ref:`optional dependencies <install.optional_dependencies>`.
 installed. This is not strictly necessary, but be aware that you will see some error
 messages when building the docs. This happens because all the code in the documentation
 is executed during the doc build, and so code examples using optional dependencies
@@ -367,8 +365,7 @@ version of all dependencies.
 
 .. warning::
 
-   You need to have ``sphinx`` version 1.2.2 or newer, but older than version 1.3.
-   Versions before 1.1.3 should also work.
+   You need to have ``sphinx`` version >= 1.3.2.
 
 Building the documentation
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -387,7 +384,7 @@ evocations, sphinx will try to only build the pages that have been modified.
 If you want to do a full clean build, do::
 
     python make.py clean
-    python make.py build
+    python make.py html
 
 Starting with *pandas* 0.13.1 you can tell ``make.py`` to compile only a single section
 of the docs, greatly reducing the turn-around time for checking your changes.
@@ -422,7 +419,8 @@ Building master branch documentation
 
 When pull requests are merged into the *pandas* ``master`` branch, the main parts of
 the documentation are also built by Travis-CI. These docs are then hosted `here
-<http://pandas-docs.github.io/pandas-docs-travis>`__.
+<http://pandas-docs.github.io/pandas-docs-travis>`__, see also
+the :ref:`Continuous Integration <contributing.ci>` section.
 
 Contributing to the code base
 =============================
@@ -433,37 +431,136 @@ Contributing to the code base
 Code standards
 --------------
 
+Writing good code is not just about what you write. It is also about *how* you
+write it. During :ref:`Continuous Integration <contributing.ci>` testing, several
+tools will be run to check your code for stylistic errors.
+Generating any warnings will cause the test to fail.
+Thus, good style is a requirement for submitting code to *pandas*.
+
+In addition, because a lot of people use our library, it is important that we
+do not make sudden changes to the code that could have the potential to break
+a lot of user code as a result, that is, we need it to be as *backwards compatible*
+as possible to avoid mass breakages.
+
+Additional standards are outlined on the `code style wiki
+page <https://github.com/pandas-dev/pandas/wiki/Code-Style-and-Conventions>`_.
+
+C (cpplint)
+~~~~~~~~~~~
+
+*pandas* uses the `Google <https://google.github.io/styleguide/cppguide.html>`_
+standard. Google provides an open source style checker called ``cpplint``, but we
+use a fork of it that can be found `here <https://github.com/cpplint/cpplint>`__.
+Here are *some* of the more common ``cpplint`` issues:
+
+  - we restrict line-length to 80 characters to promote readability
+  - every header file must include a header guard to avoid name collisions if re-included
+
+:ref:`Continuous Integration <contributing.ci>`. will run the
+`cpplint <https://pypi.python.org/pypi/cpplint>`_ tool
+and report any stylistic errors in your code. Therefore, it is helpful before
+submitting code to run the check yourself::
+
+   cpplint --extensions=c,h --headers=h --filter=-readability/casting,-runtime/int,-build/include_subdir modified-c-file
+
+You can also run this command on an entire directory if necessary::
+
+   cpplint --extensions=c,h --headers=h --filter=-readability/casting,-runtime/int,-build/include_subdir --recursive modified-c-directory
+
+To make your commits compliant with this standard, you can install the
+`ClangFormat <http://clang.llvm.org/docs/ClangFormat.html>`_ tool, which can be
+downloaded `here <http://llvm.org/builds/>`__. To configure, in your home directory,
+run the following command::
+
+    clang-format style=google -dump-config  > .clang-format
+
+Then modify the file to ensure that any indentation width parameters are at least four.
+Once configured, you can run the tool as follows::
+
+    clang-format modified-c-file
+
+This will output what your file will look like if the changes are made, and to apply
+them, just run the following command::
+
+    clang-format -i modified-c-file
+
+To run the tool on an entire directory, you can run the following analogous commands::
+
+    clang-format modified-c-directory/*.c modified-c-directory/*.h
+    clang-format -i modified-c-directory/*.c modified-c-directory/*.h
+
+Do note that this tool is best-effort, meaning that it will try to correct as
+many errors as possible, but it may not correct *all* of them. Thus, it is
+recommended that you run ``cpplint`` to double check and make any other style
+fixes manually.
+
+Python (PEP8)
+~~~~~~~~~~~~~
+
 *pandas* uses the `PEP8 <http://www.python.org/dev/peps/pep-0008/>`_ standard.
 There are several tools to ensure you abide by this standard. Here are *some* of
 the more common ``PEP8`` issues:
 
-  - we restrict line-length to 80 characters to promote readability
+  - we restrict line-length to 79 characters to promote readability
   - passing arguments should have spaces after commas, e.g. ``foo(arg1, arg2, kw1='bar')``
 
-The Travis-CI will run `flake8 <http://pypi.python.org/pypi/flake8>`_ tool and report
-any stylistic errors in your code. Generating any warnings will cause the build to fail;
-thus these are part of the requirements for submitting code to *pandas*.
+:ref:`Continuous Integration <contributing.ci>` will run
+the `flake8 <http://pypi.python.org/pypi/flake8>`_ tool
+and report any stylistic errors in your code. Therefore, it is helpful before
+submitting code to run the check yourself on the diff::
 
-It is helpful before submitting code to run this yourself on the diff::
+   git diff master --name-only -- '*.py' | flake8 --diff
 
-   git diff master | flake8 --diff
+This command will catch any stylistic errors in your changes specifically, but
+be beware it may not catch all of them. For example, if you delete the only
+usage of an imported function, it is stylistically incorrect to import an
+unused function. However, style-checking the diff will not catch this because
+the actual import is not part of the diff. Thus, for completeness, you should
+run this command, though it will take longer::
 
-Furthermore, we've written a tool to check that your commits are PEP8 great, `pip install pep8radius
-<https://github.com/hayd/pep8radius>`_. Look at PEP8 fixes in your branch vs master with::
+   git diff master --name-only -- '*.py' | grep 'pandas/' | xargs -r flake8
 
-    pep8radius master --diff
+Note that on OSX, the ``-r`` flag is not available, so you have to omit it and
+run this slightly modified command::
 
-and make these changes with::
+   git diff master --name-only -- '*.py' | grep 'pandas/' | xargs flake8
 
-    pep8radius master --diff --in-place
-
-Additional standards are outlined on the `code style wiki
-page <https://github.com/pydata/pandas/wiki/Code-Style-and-Conventions>`_.
+Backwards Compatibility
+~~~~~~~~~~~~~~~~~~~~~~~
 
 Please try to maintain backward compatibility. *pandas* has lots of users with lots of
 existing code, so don't break it if at all possible.  If you think breakage is required,
 clearly state why as part of the pull request.  Also, be careful when changing method
 signatures and add deprecation warnings where needed.
+
+.. _contributing.ci:
+
+Testing With Continuous Integration
+-----------------------------------
+
+The *pandas* test suite will run automatically on `Travis-CI <https://travis-ci.org/>`__,
+`Appveyor <https://www.appveyor.com/>`__, and `Circle CI <https://circleci.com/>`__ continuous integration
+services, once your pull request is submitted.
+However, if you wish to run the test suite on a branch prior to submitting the pull request,
+then the continuous integration services need to be hooked to your GitHub repository. Instructions are here
+for `Travis-CI <http://about.travis-ci.org/docs/user/getting-started/>`__,
+`Appveyor <https://www.appveyor.com/docs/>`__ , and `CircleCI <https://circleci.com/>`__.
+
+A pull-request will be considered for merging when you have an all 'green' build. If any tests are failing,
+then you will get a red 'X', where you can click through to see the individual failed tests.
+This is an example of a green build.
+
+.. image:: _static/ci.png
+
+.. note::
+
+   Each time you push to *your* fork, a *new* run of the tests will be triggered on the CI. Appveyor will auto-cancel
+   any non-currently-running tests for that same pull-request. You can enable the auto-cancel feature for
+   `Travis-CI here <https://docs.travis-ci.com/user/customizing-the-build/#Building-only-the-latest-commit>`__ and
+   for `CircleCI here <https://circleci.com/changelog-legacy/#option-to-auto-cancel-redundant-builds>`__.
+
+.. _contributing.tdd:
+
 
 Test-driven development/code writing
 ------------------------------------
@@ -480,8 +577,8 @@ use cases and writing corresponding tests.
 Adding tests is one of the most common requests after code is pushed to *pandas*.  Therefore,
 it is worth getting in the habit of writing tests ahead of time so this is never an issue.
 
-Like many packages, *pandas* uses the `Nose testing system
-<http://nose.readthedocs.org/en/latest/index.html>`_ and the convenient
+Like many packages, *pandas* uses `pytest
+<http://doc.pytest.org/en/latest/>`_ and the convenient
 extensions in `numpy.testing
 <http://docs.scipy.org/doc/numpy/reference/routines.testing.html>`_.
 
@@ -492,7 +589,7 @@ All tests should go into the ``tests`` subdirectory of the specific package.
 This folder contains many current examples of tests, and we suggest looking to these for
 inspiration.  If your test requires working with files or
 network connectivity, there is more information on the `testing page
-<https://github.com/pydata/pandas/wiki/Testing>`_ of the wiki.
+<https://github.com/pandas-dev/pandas/wiki/Testing>`_ of the wiki.
 
 The ``pandas.util.testing`` module has many special ``assert`` functions that
 make it easier to make statements about whether Series or DataFrame objects are
@@ -517,23 +614,150 @@ the expected correct result::
 
         assert_frame_equal(pivoted, expected)
 
+Transitioning to ``pytest``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+*pandas* existing test structure is *mostly* classed based, meaning that you will typically find tests wrapped in a class, inheriting from ``tm.TestCase``.
+
+.. code-block:: python
+
+    class TestReallyCoolFeature(tm.TestCase):
+        ....
+
+Going forward, we are moving to a more *functional* style using the `pytest <http://doc.pytest.org/en/latest/>`__ framework, which offers a richer testing
+framework that will facilitate testing and developing. Thus, instead of writing test classes, we will write test functions like this:
+
+.. code-block:: python
+
+    def test_really_cool_feature():
+        ....
+
+Sometimes, it does make sense to bundle test functions together into a single class, either because the test file is testing multiple functions from a single module, and
+using test classes allows for better organization. However, instead of inheriting from ``tm.TestCase``, we should just inherit from ``object``:
+
+.. code-block:: python
+
+    class TestReallyCoolFeature(object):
+        ....
+
+Using ``pytest``
+~~~~~~~~~~~~~~~~
+
+Here is an example of a self-contained set of tests that illustrate multiple features that we like to use.
+
+- functional style: tests are like ``test_*`` and *only* take arguments that are either fixtures or parameters
+- using ``parametrize``: allow testing of multiple cases
+- ``fixture``, code for object construction, on a per-test basis
+- using bare ``assert`` for scalars and truth-testing
+- ``tm.assert_series_equal`` (and its counter part ``tm.assert_frame_equal``), for pandas object comparisons.
+- the typical pattern of constructing an ``expected`` and comparing versus the ``result``
+
+We would name this file ``test_cool_feature.py`` and put in an appropriate place in the ``pandas/tests/`` structure.
+
+.. code-block:: python
+
+   import pytest
+   import numpy as np
+   import pandas as pd
+   from pandas.util import testing as tm
+
+   @pytest.mark.parametrize('dtype', ['int8', 'int16', 'int32', 'int64'])
+   def test_dtypes(dtype):
+       assert str(np.dtype(dtype)) == dtype
+
+   @pytest.fixture
+   def series():
+       return pd.Series([1, 2, 3])
+
+   @pytest.fixture(params=['int8', 'int16', 'int32', 'int64'])
+   def dtype(request):
+       return request.param
+
+   def test_series(series, dtype):
+       result = series.astype(dtype)
+       assert result.dtype == dtype
+
+       expected = pd.Series([1, 2, 3], dtype=dtype)
+       tm.assert_series_equal(result, expected)
+
+
+A test run of this yields
+
+.. code-block:: shell
+
+   ((pandas) bash-3.2$ pytest  test_cool_feature.py  -v
+   =========================== test session starts ===========================
+   platform darwin -- Python 3.5.2, pytest-3.0.5, py-1.4.31, pluggy-0.4.0
+   collected 8 items
+
+   tester.py::test_dtypes[int8] PASSED
+   tester.py::test_dtypes[int16] PASSED
+   tester.py::test_dtypes[int32] PASSED
+   tester.py::test_dtypes[int64] PASSED
+   tester.py::test_series[int8] PASSED
+   tester.py::test_series[int16] PASSED
+   tester.py::test_series[int32] PASSED
+   tester.py::test_series[int64] PASSED
+
+Tests that we have ``parametrized`` are now accessible via the test name, for example we could run these with ``-k int8`` to sub-select *only* those tests which match ``int8``.
+
+
+.. code-block:: shell
+
+   ((pandas) bash-3.2$ pytest  test_cool_feature.py  -v -k int8
+   =========================== test session starts ===========================
+   platform darwin -- Python 3.5.2, pytest-3.0.5, py-1.4.31, pluggy-0.4.0
+   collected 8 items
+
+   test_cool_feature.py::test_dtypes[int8] PASSED
+   test_cool_feature.py::test_series[int8] PASSED
+
+
 Running the test suite
-~~~~~~~~~~~~~~~~~~~~~~
+----------------------
 
 The tests can then be run directly inside your Git clone (without having to
 install *pandas*) by typing::
 
-    nosetests pandas
+    pytest pandas
 
 The tests suite is exhaustive and takes around 20 minutes to run.  Often it is
 worth running only a subset of tests first around your changes before running the
-entire suite.  This is done using one of the following constructs::
+entire suite.
 
-    nosetests pandas/tests/[test-module].py
-    nosetests pandas/tests/[test-module].py:[TestClass]
-    nosetests pandas/tests/[test-module].py:[TestClass].[test_method]
+The easiest way to do this is with::
 
-  .. versionadded:: 0.18.0
+    pytest pandas/path/to/test.py -k regex_matching_test_name
+
+Or with one of the following constructs::
+
+    pytest pandas/tests/[test-module].py
+    pytest pandas/tests/[test-module].py::[TestClass]
+    pytest pandas/tests/[test-module].py::[TestClass]::[test_method]
+
+Using `pytest-xdist <https://pypi.python.org/pypi/pytest-xdist>`_, one can
+speed up local testing on multicore machines. To use this feature, you will
+need to install `pytest-xdist` via::
+
+    pip install pytest-xdist
+
+Two scripts are provided to assist with this.  These scripts distribute
+testing across 4 threads.
+
+On Unix variants, one can type::
+
+    test_fast.sh
+
+On Windows, one can type::
+
+    test_fast.bat
+
+This can significantly reduce the time it takes to locally run tests before
+submitting a pull request.
+
+For more, see the `pytest <http://doc.pytest.org/en/latest/>`_ documentation.
+
+    .. versionadded:: 0.20.0
 
 Furthermore one can run
 
@@ -544,94 +768,73 @@ Furthermore one can run
 with an imported pandas to run tests similarly.
 
 Running the performance test suite
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+----------------------------------
+
 Performance matters and it is worth considering whether your code has introduced
-performance regressions.  *pandas* is in the process of migrating to the
-`asv library <https://github.com/spacetelescope/asv>`__
+performance regressions.  *pandas* is in the process of migrating to
+`asv benchmarks <https://github.com/spacetelescope/asv>`__
 to enable easy monitoring of the performance of critical *pandas* operations.
 These benchmarks are all found in the ``pandas/asv_bench`` directory.  asv
 supports both python2 and python3.
 
-.. note::
-
-    The asv benchmark suite was translated from the previous framework, vbench,
-    so many stylistic issues are likely a result of automated transformation of the
-    code.
-
-To use asv you will need either ``conda`` or ``virtualenv``. For more details
-please check the `asv installation webpage <http://asv.readthedocs.org/en/latest/installing.html>`_.
+To use all features of asv, you will need either ``conda`` or
+``virtualenv``. For more details please check the `asv installation
+webpage <https://asv.readthedocs.io/en/latest/installing.html>`_.
 
 To install asv::
 
     pip install git+https://github.com/spacetelescope/asv
 
-If you need to run a benchmark, change your directory to ``/asv_bench/`` and run
-the following if you have been developing on ``master``::
+If you need to run a benchmark, change your directory to ``asv_bench/`` and run::
 
-    asv continuous master
+    asv continuous -f 1.1 upstream/master HEAD
 
-If you are working on another branch, either of the following can be used::
+You can replace ``HEAD`` with the name of the branch you are working on,
+and report benchmarks that changed by more than 10%.
+The command uses ``conda`` by default for creating the benchmark
+environments. If you want to use virtualenv instead, write::
 
-    asv continuous master HEAD
-    asv continuous master your_branch
+    asv continuous -f 1.1 -E virtualenv upstream/master HEAD
 
-This will check out the master revision and run the suite on both master and
-your commit.  Running the full test suite can take up to one hour and use up
-to 3GB of RAM.  Usually it is sufficient to paste only a subset of the results into
-the pull request to show that the committed changes do not cause unexpected
-performance regressions.
+The ``-E virtualenv`` option should be added to all ``asv`` commands
+that run benchmarks. The default value is defined in ``asv.conf.json``.
 
-You can run specific benchmarks using the ``-b`` flag, which takes a regular expression.
-For example, this will only run tests from a ``pandas/asv_bench/benchmarks/groupby.py``
-file::
+Running the full test suite can take up to one hour and use up to 3GB of RAM.
+Usually it is sufficient to paste only a subset of the results into the pull
+request to show that the committed changes do not cause unexpected performance
+regressions.  You can run specific benchmarks using the ``-b`` flag, which
+takes a regular expression.  For example, this will only run tests from a
+``pandas/asv_bench/benchmarks/groupby.py`` file::
 
-    asv continuous master -b groupby
+    asv continuous -f 1.1 upstream/master HEAD -b ^groupby
 
 If you want to only run a specific group of tests from a file, you can do it
 using ``.`` as a separator. For example::
 
-    asv continuous master -b groupby.groupby_agg_builtins1
+    asv continuous -f 1.1 upstream/master HEAD -b groupby.groupby_agg_builtins
 
-will only run a ``groupby_agg_builtins1`` test defined in a ``groupby`` file.
+will only run the ``groupby_agg_builtins`` benchmark defined in ``groupby.py``.
 
-It can also be useful to run tests in your current environment. You can simply do it by::
+You can also run the benchmark suite using the version of ``pandas``
+already installed in your current Python environment. This can be
+useful if you do not have virtualenv or conda, or are using the
+``setup.py develop`` approach discussed above; for the in-place build
+you need to set ``PYTHONPATH``, e.g.
+``PYTHONPATH="$PWD/.." asv [remaining arguments]``.
+You can run benchmarks using an existing Python
+environment by::
 
-    asv dev
+    asv run -e -E existing
 
-This command is equivalent to::
+or, to use a specific Python interpreter,::
 
-    asv run --quick --show-stderr --python=same
+    asv run -e -E existing:python3.5
 
-This will launch every test only once, display stderr from the benchmarks, and use your local ``python`` that comes from your ``$PATH``.
+This will display stderr from the benchmarks, and use your local
+``python`` that comes from your ``$PATH``.
 
-Information on how to write a benchmark can be found in the `asv documentation <http://asv.readthedocs.org/en/latest/writing_benchmarks.html>`_.
-
-Running the vbench performance test suite (phasing out)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-Historically, *pandas* used `vbench library <https://github.com/pydata/vbench>`_
-to enable easy monitoring of the performance of critical *pandas* operations.
-These benchmarks are all found in the ``pandas/vb_suite`` directory.  vbench
-currently only works on python2.
-
-To install vbench::
-
-    pip install git+https://github.com/pydata/vbench
-
-Vbench also requires ``sqlalchemy``, ``gitpython``, and ``psutil``, which can all be installed
-using pip.  If you need to run a benchmark, change your directory to the *pandas* root and run::
-
-    ./test_perf.sh -b master -t HEAD
-
-This will check out the master revision and run the suite on both master and
-your commit.  Running the full test suite can take up to one hour and use up
-to 3GB of RAM.  Usually it is sufficient to paste a subset of the results into the Pull Request to show that the committed changes do not cause unexpected
-performance regressions.
-
-You can run specific benchmarks using the ``-r`` flag, which takes a regular expression.
-
-See the `performance testing wiki <https://github.com/pydata/pandas/wiki/Performance-Testing>`_ for information
-on how to write a benchmark.
+Information on how to write a benchmark and how to use asv can be found in the
+`asv documentation <https://asv.readthedocs.io/en/latest/writing_benchmarks.html>`_.
 
 Documenting your code
 ---------------------
@@ -654,8 +857,8 @@ directive is used. The sphinx syntax for that is:
 
 This will put the text *New in version 0.17.0* wherever you put the sphinx
 directive. This should also be put in the docstring when adding a new function
-or method (`example <https://github.com/pydata/pandas/blob/v0.16.2/pandas/core/generic.py#L1959>`__)
-or a new keyword argument (`example <https://github.com/pydata/pandas/blob/v0.16.2/pandas/core/frame.py#L1171>`__).
+or method (`example <https://github.com/pandas-dev/pandas/blob/v0.16.2/pandas/core/generic.py#L1959>`__)
+or a new keyword argument (`example <https://github.com/pandas-dev/pandas/blob/v0.16.2/pandas/core/frame.py#L1171>`__).
 
 Contributing your changes to *pandas*
 =====================================
@@ -748,8 +951,8 @@ like::
 
     origin  git@github.com:yourname/pandas.git (fetch)
     origin  git@github.com:yourname/pandas.git (push)
-    upstream        git://github.com/pydata/pandas.git (fetch)
-    upstream        git://github.com/pydata/pandas.git (push)
+    upstream        git://github.com/pandas-dev/pandas.git (fetch)
+    upstream        git://github.com/pandas-dev/pandas.git (push)
 
 Now your code is on GitHub, but it is not yet a part of the *pandas* project.  For that to
 happen, a pull request needs to be submitted on GitHub.
@@ -792,7 +995,8 @@ updated.  Pushing them to GitHub again is done by::
     git push -f origin shiny-new-feature
 
 This will automatically update your pull request with the latest code and restart the
-Travis-CI tests.
+:ref:`Continuous Integration <contributing.ci>` tests.
+
 
 Delete your merged branch (optional)
 ------------------------------------

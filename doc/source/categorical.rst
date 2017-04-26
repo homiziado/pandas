@@ -129,8 +129,7 @@ To get back to the original Series or `numpy` array, use ``Series.astype(origina
     s
     s2 = s.astype('category')
     s2
-    s3 = s2.astype('string')
-    s3
+    s2.astype(str)
     np.asarray(s2)
 
 If you have already `codes` and `categories`, you can use the :func:`~pandas.Categorical.from_codes`
@@ -228,6 +227,15 @@ Categories must be unique or a `ValueError` is raised:
 
     try:
         s.cat.categories = [1,1,1]
+    except ValueError as e:
+        print("ValueError: " + str(e))
+
+Categories must also not be ``NaN`` or a `ValueError` is raised:
+
+.. ipython:: python
+
+    try:
+        s.cat.categories = [1,2,np.nan]
     except ValueError as e:
         print("ValueError: " + str(e))
 
@@ -352,9 +360,9 @@ necessarily make the sort order the same as the categories order.
 .. note::
 
     If the `Categorical` is not ordered, ``Series.min()`` and ``Series.max()`` will raise
-    `TypeError`. Numeric operations like ``+``, ``-``, ``*``, ``/`` and operations based on them
-    (e.g.``Series.median()``, which would need to compute the mean between two values if the length
-    of an array is even) do not work and raise a `TypeError`.
+    ``TypeError``. Numeric operations like ``+``, ``-``, ``*``, ``/`` and operations based on them
+    (e.g. ``Series.median()``, which would need to compute the mean between two values if the length
+    of an array is even) do not work and raise a ``TypeError``.
 
 Multi Column Sorting
 ~~~~~~~~~~~~~~~~~~~~
@@ -483,7 +491,7 @@ Pivot tables:
 Data munging
 ------------
 
-The optimized pandas data access methods  ``.loc``, ``.iloc``, ``.ix`` ``.at``, and ``.iat``,
+The optimized pandas data access methods  ``.loc``, ``.iloc``, ``.at``, and ``.iat``,
 work as normal. The only difference is the return type (for getting) and
 that only values already in `categories` can be assigned.
 
@@ -502,7 +510,6 @@ the ``category`` dtype is preserved.
     df.iloc[2:4,:]
     df.iloc[2:4,:].dtypes
     df.loc["h":"j","cats"]
-    df.ix["h":"j",0:1]
     df[df["cats"] == "b"]
 
 An example where the category type is not preserved is if you take one single row: the
@@ -619,6 +626,7 @@ Assigning a `Categorical` to parts of a column of other types will use the value
     df
     df.dtypes
 
+.. _categorical.merge:
 
 Merging
 ~~~~~~~
@@ -647,6 +655,142 @@ In this case the categories are not the same and so an error is raised:
         print("ValueError: " + str(e))
 
 The same applies to ``df.append(df_different)``.
+
+See also the section on :ref:`merge dtypes<merging.dtypes>` for notes about preserving merge dtypes and performance.
+
+
+.. _categorical.union:
+
+Unioning
+~~~~~~~~
+
+.. versionadded:: 0.19.0
+
+If you want to combine categoricals that do not necessarily have
+the same categories, the ``union_categoricals`` function will
+combine a list-like of categoricals. The new categories
+will be the union of the categories being combined.
+
+.. ipython:: python
+
+    from pandas.api.types import union_categoricals
+    a = pd.Categorical(["b", "c"])
+    b = pd.Categorical(["a", "b"])
+    union_categoricals([a, b])
+
+By default, the resulting categories will be ordered as
+they appear in the data. If you want the categories to
+be lexsorted, use ``sort_categories=True`` argument.
+
+.. ipython:: python
+
+    union_categoricals([a, b], sort_categories=True)
+
+``union_categoricals`` also works with the "easy" case of combining two
+categoricals of the same categories and order information
+(e.g. what you could also ``append`` for).
+
+.. ipython:: python
+
+    a = pd.Categorical(["a", "b"], ordered=True)
+    b = pd.Categorical(["a", "b", "a"], ordered=True)
+    union_categoricals([a, b])
+
+The below raises ``TypeError`` because the categories are ordered and not identical.
+
+.. code-block:: ipython
+
+   In [1]: a = pd.Categorical(["a", "b"], ordered=True)
+   In [2]: b = pd.Categorical(["a", "b", "c"], ordered=True)
+   In [3]: union_categoricals([a, b])
+   Out[3]:
+   TypeError: to union ordered Categoricals, all categories must be the same
+
+.. versionadded:: 0.20.0
+
+Ordered categoricals with different categories or orderings can be combined by
+using the ``ignore_ordered=True`` argument.
+
+.. ipython:: python
+
+    a = pd.Categorical(["a", "b", "c"], ordered=True)
+    b = pd.Categorical(["c", "b", "a"], ordered=True)
+    union_categoricals([a, b], ignore_order=True)
+
+``union_categoricals`` also works with a ``CategoricalIndex``, or ``Series`` containing
+categorical data, but note that the resulting array will always be a plain ``Categorical``
+
+.. ipython:: python
+
+    a = pd.Series(["b", "c"], dtype='category')
+    b = pd.Series(["a", "b"], dtype='category')
+    union_categoricals([a, b])
+
+.. note::
+
+   ``union_categoricals`` may recode the integer codes for categories
+   when combining categoricals.  This is likely what you want,
+   but if you are relying on the exact numbering of the categories, be
+   aware.
+
+   .. ipython:: python
+
+      c1 = pd.Categorical(["b", "c"])
+      c2 = pd.Categorical(["a", "b"])
+
+      c1
+      # "b" is coded to 0
+      c1.codes
+
+      c2
+      # "b" is coded to 1
+      c2.codes
+
+      c = union_categoricals([c1, c2])
+      c
+      # "b" is coded to 0 throughout, same as c1, different from c2
+      c.codes
+
+.. _categorical.concat:
+
+Concatenation
+~~~~~~~~~~~~~
+
+This section describes concatenations specific to ``category`` dtype. See :ref:`Concatenating objects<merging.concat>` for general description.
+
+By default, ``Series`` or ``DataFrame`` concatenation which contains the same categories
+results in ``category`` dtype, otherwise results in ``object`` dtype.
+Use ``.astype`` or ``union_categoricals`` to get ``category`` result.
+
+.. ipython:: python
+
+   # same categories
+   s1 = pd.Series(['a', 'b'], dtype='category')
+   s2 = pd.Series(['a', 'b', 'a'], dtype='category')
+   pd.concat([s1, s2])
+
+   # different categories
+   s3 = pd.Series(['b', 'c'], dtype='category')
+   pd.concat([s1, s3])
+
+   pd.concat([s1, s3]).astype('category')
+   union_categoricals([s1.values, s3.values])
+
+
+Following table summarizes the results of ``Categoricals`` related concatenations.
+
++----------+--------------------------------------------------------+----------------------------+
+| arg1     | arg2                                                   | result                     |
++==========+========================================================+============================+
+| category | category (identical categories)                        | category                   |
++----------+--------------------------------------------------------+----------------------------+
+| category | category (different categories, both not ordered)      | object (dtype is inferred) |
++----------+--------------------------------------------------------+----------------------------+
+| category | category (different categories, either one is ordered) | object (dtype is inferred) |
++----------+--------------------------------------------------------+----------------------------+
+| category | not category                                           | object (dtype is inferred) |
++----------+--------------------------------------------------------+----------------------------+
+
 
 Getting Data In/Out
 -------------------
@@ -851,7 +995,7 @@ are not numeric data (even in the case that ``.categories`` is numeric).
          print("TypeError: " + str(e))
 
 .. note::
-    If such a function works, please file a bug at https://github.com/pydata/pandas!
+    If such a function works, please file a bug at https://github.com/pandas-dev/pandas!
 
 dtype in apply
 ~~~~~~~~~~~~~~

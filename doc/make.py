@@ -18,13 +18,16 @@ python make.py html
 """
 from __future__ import print_function
 
-import glob
+import io
+import glob  # noqa
 import os
 import shutil
 import sys
-import sphinx
+from contextlib import contextmanager
+
+import sphinx  # noqa
 import argparse
-import jinja2
+import jinja2  # noqa
 
 os.environ['PYTHONPATH'] = '..'
 
@@ -102,19 +105,44 @@ def clean():
         shutil.rmtree('source/generated')
 
 
+@contextmanager
+def maybe_exclude_notebooks():
+    """
+    Skip building the notebooks if pandoc is not installed.
+    This assumes that nbsphinx is installed.
+    """
+    base = os.path.dirname(__file__)
+    notebooks = [os.path.join(base, 'source', nb)
+                 for nb in ['style.ipynb']]
+    contents = {}
+    try:
+        import nbconvert
+        nbconvert.utils.pandoc.get_pandoc_version()
+    except (ImportError, nbconvert.utils.pandoc.PandocMissing):
+        print("Warning: Pandoc is not installed. Skipping Notebooks.")
+        for nb in notebooks:
+            with open(nb, 'rt') as f:
+                contents[nb] = f.read()
+            os.remove(nb)
+    yield
+    for nb, content in contents.items():
+        with open(nb, 'wt') as f:
+            f.write(content)
+
+
 def html():
     check_build()
-    os.system('jupyter nbconvert --to=html --template=basic '
-              '--output=source/html-styling.html source/html-styling.ipynb')
-    if os.system('sphinx-build -P -b html -d build/doctrees '
-                 'source build/html'):
-        raise SystemExit("Building HTML failed.")
-    try:
-        # remove stale file
-        os.system('rm source/html-styling.html')
-        os.system('cd build; rm -f html/pandas.zip;')
-    except:
-        pass
+
+    with maybe_exclude_notebooks():
+        if os.system('sphinx-build -P -b html -d build/doctrees '
+                     'source build/html'):
+            raise SystemExit("Building HTML failed.")
+        try:
+            # remove stale file
+            os.remove('build/html/pandas.zip')
+        except:
+            pass
+
 
 def zip_html():
     try:
@@ -130,7 +158,7 @@ def latex():
     check_build()
     if sys.platform != 'win32':
         # LaTeX format.
-        if os.system('sphinx-build -b latex -d build/doctrees '
+        if os.system('sphinx-build -j 2 -b latex -d build/doctrees '
                      'source build/latex'):
             raise SystemExit("Building LaTeX failed.")
         # Produce pdf.
@@ -153,7 +181,7 @@ def latex_forced():
     check_build()
     if sys.platform != 'win32':
         # LaTeX format.
-        if os.system('sphinx-build -b latex -d build/doctrees '
+        if os.system('sphinx-build -j 2 -b latex -d build/doctrees '
                      'source build/latex'):
             raise SystemExit("Building LaTeX failed.")
         # Produce pdf.

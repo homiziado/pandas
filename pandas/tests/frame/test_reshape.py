@@ -2,8 +2,11 @@
 
 from __future__ import print_function
 
+from warnings import catch_warnings
 from datetime import datetime
+
 import itertools
+import pytest
 
 from numpy.random import randn
 from numpy import nan
@@ -14,9 +17,7 @@ from pandas import (DataFrame, Index, Series, MultiIndex, date_range,
                     Timedelta, Period)
 import pandas as pd
 
-from pandas.util.testing import (assert_series_equal,
-                                 assert_frame_equal,
-                                 assertRaisesRegexp)
+from pandas.util.testing import assert_series_equal, assert_frame_equal
 
 import pandas.util.testing as tm
 
@@ -24,8 +25,6 @@ from pandas.tests.frame.common import TestData
 
 
 class TestDataFrameReshape(tm.TestCase, TestData):
-
-    _multiprocess_can_split_ = True
 
     def test_pivot(self):
         data = {
@@ -55,17 +54,18 @@ class TestDataFrameReshape(tm.TestCase, TestData):
         self.assertEqual(pivoted.index.name, 'index')
         self.assertEqual(pivoted.columns.names, (None, 'columns'))
 
-        # pivot multiple columns
-        wp = tm.makePanel()
-        lp = wp.to_frame()
-        df = lp.reset_index()
-        assert_frame_equal(df.pivot('major', 'minor'), lp.unstack())
+        with catch_warnings(record=True):
+            # pivot multiple columns
+            wp = tm.makePanel()
+            lp = wp.to_frame()
+            df = lp.reset_index()
+            assert_frame_equal(df.pivot('major', 'minor'), lp.unstack())
 
     def test_pivot_duplicates(self):
         data = DataFrame({'a': ['bar', 'bar', 'foo', 'foo', 'foo'],
                           'b': ['one', 'two', 'one', 'one', 'two'],
                           'c': [1., 2., 3., 3., 4.]})
-        with assertRaisesRegexp(ValueError, 'duplicate entries'):
+        with tm.assert_raises_regex(ValueError, 'duplicate entries'):
             data.pivot('a', 'b', 'c')
 
     def test_pivot_empty(self):
@@ -79,7 +79,7 @@ class TestDataFrameReshape(tm.TestCase, TestData):
 
         result = df.pivot(index=1, columns=0, values=2)
         repr(result)
-        self.assert_numpy_array_equal(result.columns, ['A', 'B'])
+        tm.assert_index_equal(result.columns, Index(['A', 'B'], name=0))
 
     def test_pivot_index_none(self):
         # gh-3962
@@ -123,19 +123,22 @@ class TestDataFrameReshape(tm.TestCase, TestData):
         assert_frame_equal(result, expected)
 
     def test_stack_unstack(self):
-        stacked = self.frame.stack()
+        f = self.frame.copy()
+        f[:] = np.arange(np.prod(f.shape)).reshape(f.shape)
+
+        stacked = f.stack()
         stacked_df = DataFrame({'foo': stacked, 'bar': stacked})
 
         unstacked = stacked.unstack()
         unstacked_df = stacked_df.unstack()
 
-        assert_frame_equal(unstacked, self.frame)
-        assert_frame_equal(unstacked_df['bar'], self.frame)
+        assert_frame_equal(unstacked, f)
+        assert_frame_equal(unstacked_df['bar'], f)
 
         unstacked_cols = stacked.unstack(0)
         unstacked_cols_df = stacked_df.unstack(0)
-        assert_frame_equal(unstacked_cols.T, self.frame)
-        assert_frame_equal(unstacked_cols_df['bar'].T, self.frame)
+        assert_frame_equal(unstacked_cols.T, f)
+        assert_frame_equal(unstacked_cols_df['bar'].T, f)
 
     def test_unstack_fill(self):
 
@@ -157,6 +160,8 @@ class TestDataFrameReshape(tm.TestCase, TestData):
         expected = DataFrame({'a': [1, 0.5, 5], 'b': [2, 4, 0.5]},
                              index=['x', 'y', 'z'], dtype=np.float)
         assert_frame_equal(result, expected)
+
+    def test_unstack_fill_frame(self):
 
         # From a dataframe
         rows = [[1, 2], [3, 4], [5, 6], [7, 8]]
@@ -190,6 +195,8 @@ class TestDataFrameReshape(tm.TestCase, TestData):
             [('A', 'a'), ('A', 'b'), ('B', 'a'), ('B', 'b')])
         assert_frame_equal(result, expected)
 
+    def test_unstack_fill_frame_datetime(self):
+
         # Test unstacking with date times
         dv = pd.date_range('2012-01-01', periods=4).values
         data = Series(dv)
@@ -207,6 +214,8 @@ class TestDataFrameReshape(tm.TestCase, TestData):
                               'b': [dv[1], dv[2], dv[0]]},
                              index=['x', 'y', 'z'])
         assert_frame_equal(result, expected)
+
+    def test_unstack_fill_frame_timedelta(self):
 
         # Test unstacking with time deltas
         td = [Timedelta(days=i) for i in range(4)]
@@ -226,6 +235,8 @@ class TestDataFrameReshape(tm.TestCase, TestData):
                              index=['x', 'y', 'z'])
         assert_frame_equal(result, expected)
 
+    def test_unstack_fill_frame_period(self):
+
         # Test unstacking with period
         periods = [Period('2012-01'), Period('2012-02'), Period('2012-03'),
                    Period('2012-04')]
@@ -244,6 +255,8 @@ class TestDataFrameReshape(tm.TestCase, TestData):
                               'b': [periods[1], periods[2], periods[1]]},
                              index=['x', 'y', 'z'])
         assert_frame_equal(result, expected)
+
+    def test_unstack_fill_frame_categorical(self):
 
         # Test unstacking with categorical
         data = pd.Series(['a', 'b', 'c', 'a'], dtype='category')
@@ -272,28 +285,61 @@ class TestDataFrameReshape(tm.TestCase, TestData):
                              index=list('xyz'))
         assert_frame_equal(result, expected)
 
+    def test_unstack_preserve_dtypes(self):
+        # Checks fix for #11847
+        df = pd.DataFrame(dict(state=['IL', 'MI', 'NC'],
+                               index=['a', 'b', 'c'],
+                               some_categories=pd.Series(['a', 'b', 'c']
+                                                         ).astype('category'),
+                               A=np.random.rand(3),
+                               B=1,
+                               C='foo',
+                               D=pd.Timestamp('20010102'),
+                               E=pd.Series([1.0, 50.0, 100.0]
+                                           ).astype('float32'),
+                               F=pd.Series([3.0, 4.0, 5.0]).astype('float64'),
+                               G=False,
+                               H=pd.Series([1, 200, 923442], dtype='int8')))
+
+        def unstack_and_compare(df, column_name):
+            unstacked1 = df.unstack([column_name])
+            unstacked2 = df.unstack(column_name)
+            assert_frame_equal(unstacked1, unstacked2)
+
+        df1 = df.set_index(['state', 'index'])
+        unstack_and_compare(df1, 'index')
+
+        df1 = df.set_index(['state', 'some_categories'])
+        unstack_and_compare(df1, 'some_categories')
+
+        df1 = df.set_index(['F', 'C'])
+        unstack_and_compare(df1, 'F')
+
+        df1 = df.set_index(['G', 'B', 'state'])
+        unstack_and_compare(df1, 'B')
+
+        df1 = df.set_index(['E', 'A'])
+        unstack_and_compare(df1, 'E')
+
+        df1 = df.set_index(['state', 'index'])
+        s = df1['A']
+        unstack_and_compare(s, 'index')
+
     def test_stack_ints(self):
-        df = DataFrame(
-            np.random.randn(30, 27),
-            columns=MultiIndex.from_tuples(
-                list(itertools.product(range(3), repeat=3))
-            )
-        )
-        assert_frame_equal(
-            df.stack(level=[1, 2]),
-            df.stack(level=1).stack(level=1)
-        )
-        assert_frame_equal(
-            df.stack(level=[-2, -1]),
-            df.stack(level=1).stack(level=1)
-        )
+        columns = MultiIndex.from_tuples(list(itertools.product(range(3),
+                                                                repeat=3)))
+        df = DataFrame(np.random.randn(30, 27), columns=columns)
+
+        assert_frame_equal(df.stack(level=[1, 2]),
+                           df.stack(level=1).stack(level=1))
+        assert_frame_equal(df.stack(level=[-2, -1]),
+                           df.stack(level=1).stack(level=1))
 
         df_named = df.copy()
         df_named.columns.set_names(range(3), inplace=True)
-        assert_frame_equal(
-            df_named.stack(level=[1, 2]),
-            df_named.stack(level=1).stack(level=1)
-        )
+
+        assert_frame_equal(df_named.stack(level=[1, 2]),
+                           df_named.stack(level=1).stack(level=1))
 
     def test_stack_mixed_levels(self):
         columns = MultiIndex.from_tuples(
@@ -318,7 +364,7 @@ class TestDataFrameReshape(tm.TestCase, TestData):
 
         # When mixed types are passed and the ints are not level
         # names, raise
-        self.assertRaises(ValueError, df2.stack, level=['animal', 0])
+        pytest.raises(ValueError, df2.stack, level=['animal', 0])
 
         # GH #8584: Having 0 in the level names could raise a
         # strange error about lexsort depth
@@ -477,10 +523,10 @@ class TestDataFrameReshape(tm.TestCase, TestData):
         idx = MultiIndex.from_tuples([('a', 'b'), ('c', 'd')],
                                      names=['c1', 'c1'])
         df = DataFrame([1, 2], index=idx)
-        with tm.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             df.unstack('c1')
 
-        with tm.assertRaises(ValueError):
+        with pytest.raises(ValueError):
             df.T.stack('c1')
 
     def test_unstack_nan_index(self):  # GH7466
@@ -616,7 +662,7 @@ class TestDataFrameReshape(tm.TestCase, TestData):
         right = DataFrame(vals, columns=cols, index=idx)
         assert_frame_equal(left, right)
 
-        left = df.ix[17264:].copy().set_index(['s_id', 'dosage', 'agent'])
+        left = df.loc[17264:].copy().set_index(['s_id', 'dosage', 'agent'])
         assert_frame_equal(left.unstack(), right)
 
         # GH9497 - multiple unstack with nulls
@@ -704,3 +750,19 @@ class TestDataFrameReshape(tm.TestCase, TestData):
                              columns=Index(['B', 'C'], name='Upper'),
                              dtype=df.dtypes[0])
         assert_frame_equal(result, expected)
+
+    def test_stack_preserve_categorical_dtype(self):
+        # GH13854
+        for ordered in [False, True]:
+            for labels in [list("yxz"), list("yxy")]:
+                cidx = pd.CategoricalIndex(labels, categories=list("xyz"),
+                                           ordered=ordered)
+                df = DataFrame([[10, 11, 12]], columns=cidx)
+                result = df.stack()
+
+                # `MutliIndex.from_product` preserves categorical dtype -
+                # it's tested elsewhere.
+                midx = pd.MultiIndex.from_product([df.index, cidx])
+                expected = Series([10, 11, 12], index=midx)
+
+                tm.assert_series_equal(result, expected)

@@ -11,10 +11,9 @@ import numpy as np
 
 from pandas import (DataFrame, compat, option_context)
 from pandas.compat import StringIO, lrange, u
-import pandas.core.format as fmt
+import pandas.io.formats.format as fmt
 import pandas as pd
 
-from numpy.testing.decorators import slow
 import pandas.util.testing as tm
 
 from pandas.tests.frame.common import TestData
@@ -25,8 +24,6 @@ from pandas.tests.frame.common import TestData
 
 
 class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
-
-    _multiprocess_can_split_ = True
 
     def test_repr_empty(self):
         # empty
@@ -43,7 +40,7 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
         foo = repr(self.mixed_frame)  # noqa
         self.mixed_frame.info(verbose=False, buf=buf)
 
-    @slow
+    @tm.slow
     def test_repr_mixed_big(self):
         # big mixed
         biggie = DataFrame({'A': np.random.randn(200),
@@ -90,7 +87,7 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
         with option_context('display.show_dimensions', 'truncate'):
             self.assertFalse("2 rows x 2 columns" in repr(df))
 
-    @slow
+    @tm.slow
     def test_repr_big(self):
         # big one
         biggie = DataFrame(np.zeros((200, 4)), columns=lrange(4),
@@ -121,7 +118,7 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
         fmt.set_option('display.max_rows', 1000, 'display.max_columns', 1000)
         repr(self.frame)
 
-        self.reset_display_options()
+        tm.reset_display_options()
 
         warnings.filters = warn_filters
 
@@ -174,7 +171,7 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
                                       ' the File through the code..')})
 
         result = repr(df)
-        self.assertIn('StringCol', result)
+        assert 'StringCol' in result
 
     def test_latex_repr(self):
         result = r"""\begin{tabular}{llll}
@@ -192,8 +189,9 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
             self.assertEqual(result, df._repr_latex_())
 
         # GH 12182
-        self.assertIsNone(df._repr_latex_())
+        assert df._repr_latex_() is None
 
+    @tm.capture_stdout
     def test_info(self):
         io = StringIO()
         self.frame.info(buf=io)
@@ -201,11 +199,8 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
 
         frame = DataFrame(np.random.randn(5, 3))
 
-        import sys
-        sys.stdout = StringIO()
         frame.info()
         frame.info(verbose=False)
-        sys.stdout = sys.__stdout__
 
     def test_info_wide(self):
         from pandas import set_option, reset_option
@@ -304,10 +299,12 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
             data[i] = np.random.randint(2, size=n).astype(dtype)
         df = DataFrame(data)
         buf = StringIO()
+
         # display memory usage case
         df.info(buf=buf, memory_usage=True)
         res = buf.getvalue().splitlines()
         self.assertTrue("memory usage: " in res[-1])
+
         # do not display memory usage cas
         df.info(buf=buf, memory_usage=False)
         res = buf.getvalue().splitlines()
@@ -315,11 +312,13 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
 
         df.info(buf=buf, memory_usage=True)
         res = buf.getvalue().splitlines()
+
         # memory usage is a lower bound, so print it as XYZ+ MB
         self.assertTrue(re.match(r"memory usage: [^+]+\+", res[-1]))
 
         df.iloc[:, :5].info(buf=buf, memory_usage=True)
         res = buf.getvalue().splitlines()
+
         # excluded column with object dtype, so estimate is accurate
         self.assertFalse(re.match(r"memory usage: [^+]+\+", res[-1]))
 
@@ -382,3 +381,63 @@ class TestDataFrameReprInfoEtc(tm.TestCase, TestData):
         # deep=True, and add on some GC overhead
         diff = df.memory_usage(deep=True).sum() - sys.getsizeof(df)
         self.assertTrue(abs(diff) < 100)
+
+    def test_info_memory_usage_qualified(self):
+
+        buf = StringIO()
+        df = DataFrame(1, columns=list('ab'),
+                       index=[1, 2, 3])
+        df.info(buf=buf)
+        self.assertFalse('+' in buf.getvalue())
+
+        buf = StringIO()
+        df = DataFrame(1, columns=list('ab'),
+                       index=list('ABC'))
+        df.info(buf=buf)
+        self.assertTrue('+' in buf.getvalue())
+
+        buf = StringIO()
+        df = DataFrame(1, columns=list('ab'),
+                       index=pd.MultiIndex.from_product(
+                           [range(3), range(3)]))
+        df.info(buf=buf)
+        self.assertFalse('+' in buf.getvalue())
+
+        buf = StringIO()
+        df = DataFrame(1, columns=list('ab'),
+                       index=pd.MultiIndex.from_product(
+                           [range(3), ['foo', 'bar']]))
+        df.info(buf=buf)
+        self.assertTrue('+' in buf.getvalue())
+
+    def test_info_memory_usage_bug_on_multiindex(self):
+        # GH 14308
+        # memory usage introspection should not materialize .values
+
+        from string import ascii_uppercase as uppercase
+
+        def memory_usage(f):
+            return f.memory_usage(deep=True).sum()
+
+        N = 100
+        M = len(uppercase)
+        index = pd.MultiIndex.from_product([list(uppercase),
+                                            pd.date_range('20160101',
+                                                          periods=N)],
+                                           names=['id', 'date'])
+        df = DataFrame({'value': np.random.randn(N * M)}, index=index)
+
+        unstacked = df.unstack('id')
+        self.assertEqual(df.values.nbytes, unstacked.values.nbytes)
+        self.assertTrue(memory_usage(df) > memory_usage(unstacked))
+
+        # high upper bound
+        self.assertTrue(memory_usage(unstacked) - memory_usage(df) < 2000)
+
+    def test_info_categorical(self):
+        # GH14298
+        idx = pd.CategoricalIndex(['a', 'b'])
+        df = pd.DataFrame(np.zeros((2, 2)), index=idx, columns=idx)
+
+        buf = StringIO()
+        df.info(buf=buf)

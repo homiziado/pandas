@@ -145,7 +145,7 @@ either match on the *index* or *columns* via the **axis** keyword:
                       'two' : pd.Series(np.random.randn(4), index=['a', 'b', 'c', 'd']),
                       'three' : pd.Series(np.random.randn(3), index=['b', 'c', 'd'])})
    df
-   row = df.ix[1]
+   row = df.iloc[1]
    column = df['two']
 
    df.sub(row, axis='columns')
@@ -187,6 +187,32 @@ And similarly for ``axis="items"`` and ``axis="minor"``.
    I could be convinced to make the **axis** argument in the DataFrame methods
    match the broadcasting behavior of Panel. Though it would require a
    transition period so users can change their code...
+
+Series and Index also support the :func:`divmod` builtin. This function takes
+the floor division and modulo operation at the same time returning a two-tuple
+of the same type as the left hand side. For example:
+
+.. ipython:: python
+
+   s = pd.Series(np.arange(10))
+   s
+   div, rem = divmod(s, 3)
+   div
+   rem
+
+   idx = pd.Index(np.arange(10))
+   idx
+   div, rem = divmod(idx, 3)
+   div
+   rem
+
+We can also do elementwise :func:`divmod`:
+
+.. ipython:: python
+
+   div, rem = divmod(s, [2, 2, 3, 3, 4, 4, 5, 5, 6, 6])
+   div
+   rem
 
 Missing data / operations with fill values
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -272,7 +298,7 @@ To evaluate single-element pandas objects in a boolean context, use the method
 
    .. code-block:: python
 
-       >>>if df:
+       >>> if df:
             ...
 
    Or
@@ -352,7 +378,7 @@ objects of the same length:
 Trying to compare ``Index`` or ``Series`` objects of different lengths will
 raise a ValueError:
 
-.. code-block:: python
+.. code-block:: ipython
 
     In [55]: pd.Series(['foo', 'bar', 'baz']) == pd.Series(['foo', 'bar'])
     ValueError: Series lengths must match to compare
@@ -460,7 +486,9 @@ standard deviation 1), very concisely:
    xs_stand.std(1)
 
 Note that methods like :meth:`~DataFrame.cumsum` and :meth:`~DataFrame.cumprod`
-preserve the location of NA values:
+preserve the location of ``NaN`` values. This is somewhat different from
+:meth:`~DataFrame.expanding` and :meth:`~DataFrame.rolling`.
+For more details please see :ref:`this note <stats.moments.expanding.note>`.
 
 .. ipython:: python
 
@@ -528,7 +556,7 @@ course):
     series[::2] = np.nan
     series.describe()
     frame = pd.DataFrame(np.random.randn(1000, 5), columns=['a', 'b', 'c', 'd', 'e'])
-    frame.ix[::2] = np.nan
+    frame.iloc[::2] = np.nan
     frame.describe()
 
 You can select specific percentiles to include in the output:
@@ -674,7 +702,8 @@ on an entire ``DataFrame`` or ``Series``, row- or column-wise, or elementwise.
 
 1. `Tablewise Function Application`_: :meth:`~DataFrame.pipe`
 2. `Row or Column-wise Function Application`_: :meth:`~DataFrame.apply`
-3. Elementwise_ function application: :meth:`~DataFrame.applymap`
+3. `Aggregation API`_: :meth:`~DataFrame.agg` and :meth:`~DataFrame.transform`
+4. `Applying Elementwise Functions`_: :meth:`~DataFrame.applymap`
 
 .. _basics.pipe:
 
@@ -750,6 +779,13 @@ statistics methods, take an optional ``axis`` argument:
    df.apply(np.cumsum)
    df.apply(np.exp)
 
+``.apply()`` will also dispatch on a string method name.
+
+.. ipython:: python
+
+   df.apply('mean')
+   df.apply('mean', axis=1)
+
 Depending on the return type of the function passed to :meth:`~DataFrame.apply`,
 the result will either be of lower dimension or the same dimension.
 
@@ -799,16 +835,224 @@ set to True, the passed function will instead receive an ndarray object, which
 has positive performance implications if you do not need the indexing
 functionality.
 
-.. seealso::
+.. _basics.aggregate:
 
-   The section on :ref:`GroupBy <groupby>` demonstrates related, flexible
-   functionality for grouping by some criterion, applying, and combining the
-   results into a Series, DataFrame, etc.
+Aggregation API
+~~~~~~~~~~~~~~~
 
-.. _Elementwise:
+.. versionadded:: 0.20.0
 
-Applying elementwise Python functions
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The aggregation API allows one to express possibly multiple aggregation operations in a single concise way.
+This API is similar across pandas objects, see :ref:`groupby API <groupby.aggregate>`, the
+:ref:`window functions API <stats.aggregate>`, and the :ref:`resample API <timeseries.aggregate>`.
+The entry point for aggregation is the method :meth:`~DataFrame.aggregate`, or the alias :meth:`~DataFrame.agg`.
+
+We will use a similar starting frame from above:
+
+.. ipython:: python
+
+   tsdf = pd.DataFrame(np.random.randn(10, 3), columns=['A', 'B', 'C'],
+                       index=pd.date_range('1/1/2000', periods=10))
+   tsdf.iloc[3:7] = np.nan
+   tsdf
+
+Using a single function is equivalent to :meth:`~DataFrame.apply`; You can also pass named methods as strings.
+These will return a ``Series`` of the aggregated output:
+
+.. ipython:: python
+
+   tsdf.agg(np.sum)
+
+   tsdf.agg('sum')
+
+   # these are equivalent to a ``.sum()`` because we are aggregating on a single function
+   tsdf.sum()
+
+Single aggregations on a ``Series`` this will result in a scalar value:
+
+.. ipython:: python
+
+   tsdf.A.agg('sum')
+
+
+Aggregating with multiple functions
++++++++++++++++++++++++++++++++++++
+
+You can pass multiple aggregation arguments as a list.
+The results of each of the passed functions will be a row in the resultant ``DataFrame``.
+These are naturally named from the aggregation function.
+
+.. ipython:: python
+
+   tsdf.agg(['sum'])
+
+Multiple functions yield multiple rows:
+
+.. ipython:: python
+
+   tsdf.agg(['sum', 'mean'])
+
+On a ``Series``, multiple functions return a ``Series``, indexed by the function names:
+
+.. ipython:: python
+
+   tsdf.A.agg(['sum', 'mean'])
+
+Passing a ``lambda`` function will yield a ``<lambda>`` named row:
+
+.. ipython:: python
+
+   tsdf.A.agg(['sum', lambda x: x.mean()])
+
+Passing a named function will yield that name for the row:
+
+.. ipython:: python
+
+   def mymean(x):
+      return x.mean()
+
+   tsdf.A.agg(['sum', mymean])
+
+Aggregating with a dict
++++++++++++++++++++++++
+
+Passing a dictionary of column names to a scalar or a list of scalars, to ``DataFame.agg``
+allows you to customize which functions are applied to which columns. Note that the results
+are not in any particular order, you can use an ``OrderedDict`` instead to guarantee ordering.
+
+.. ipython:: python
+
+   tsdf.agg({'A': 'mean', 'B': 'sum'})
+
+Passing a list-like will generate a ``DataFrame`` output. You will get a matrix-like output
+of all of the aggregators. The output will consist of all unique functions. Those that are
+not noted for a particular column will be ``NaN``:
+
+.. ipython:: python
+
+   tsdf.agg({'A': ['mean', 'min'], 'B': 'sum'})
+
+.. _basics.aggregation.mixed_dtypes:
+
+Mixed Dtypes
+++++++++++++
+
+When presented with mixed dtypes that cannot aggregate, ``.agg`` will only take the valid
+aggregations. This is similiar to how groupby ``.agg`` works.
+
+.. ipython:: python
+
+   mdf = pd.DataFrame({'A': [1, 2, 3],
+                       'B': [1., 2., 3.],
+                       'C': ['foo', 'bar', 'baz'],
+                       'D': pd.date_range('20130101', periods=3)})
+   mdf.dtypes
+
+.. ipython:: python
+
+   mdf.agg(['min', 'sum'])
+
+.. _basics.aggregation.custom_describe:
+
+Custom describe
++++++++++++++++
+
+With ``.agg()`` is it possible to easily create a custom describe function, similar
+to the built in :ref:`describe function <basics.describe>`.
+
+.. ipython:: python
+
+   from functools import partial
+
+   q_25 = partial(pd.Series.quantile, q=0.25)
+   q_25.__name__ = '25%'
+   q_75 = partial(pd.Series.quantile, q=0.75)
+   q_75.__name__ = '75%'
+
+   tsdf.agg(['count', 'mean', 'std', 'min', q_25, 'median', q_75, 'max'])
+
+.. _basics.transform:
+
+Transform API
+~~~~~~~~~~~~~
+
+.. versionadded:: 0.20.0
+
+The :meth:`~DataFrame.transform` method returns an object that is indexed the same (same size)
+as the original. This API allows you to provide *multiple* operations at the same
+time rather than one-by-one. Its API is quite similar to the ``.agg`` API.
+
+Use a similar frame to the above sections.
+
+.. ipython:: python
+
+   tsdf = pd.DataFrame(np.random.randn(10, 3), columns=['A', 'B', 'C'],
+                       index=pd.date_range('1/1/2000', periods=10))
+   tsdf.iloc[3:7] = np.nan
+   tsdf
+
+Transform the entire frame. ``.transform()`` allows input functions as: a numpy function, a string
+function name or a user defined function.
+
+.. ipython:: python
+
+   tsdf.transform(np.abs)
+   tsdf.transform('abs')
+   tsdf.transform(lambda x: x.abs())
+
+Here ``.transform()`` received a single function; this is equivalent to a ufunc application
+
+.. ipython:: python
+
+   np.abs(tsdf)
+
+Passing a single function to ``.transform()`` with a ``Series`` will yield a single ``Series`` in return.
+
+.. ipython:: python
+
+   tsdf.A.transform(np.abs)
+
+
+Transform with multiple functions
++++++++++++++++++++++++++++++++++
+
+Passing multiple functions will yield a column multi-indexed DataFrame.
+The first level will be the original frame column names; the second level
+will be the names of the transforming functions.
+
+.. ipython:: python
+
+   tsdf.transform([np.abs, lambda x: x+1])
+
+Passing multiple functions to a Series will yield a DataFrame. The
+resulting column names will be the transforming functions.
+
+.. ipython:: python
+
+   tsdf.A.transform([np.abs, lambda x: x+1])
+
+
+Transforming with a dict
+++++++++++++++++++++++++
+
+
+Passing a dict of functions will will allow selective transforming per column.
+
+.. ipython:: python
+
+   tsdf.transform({'A': np.abs, 'B': lambda x: x+1})
+
+Passing a dict of lists will generate a multi-indexed DataFrame with these
+selective transforms.
+
+.. ipython:: python
+
+   tsdf.transform({'A': np.abs, 'B': [lambda x: x+1, 'sqrt']})
+
+.. _basics.elementwise:
+
+Applying Elementwise Functions
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Since not all functions can be vectorized (accept NumPy arrays and return
 another array or value), the methods :meth:`~DataFrame.applymap` on DataFrame
@@ -1053,7 +1297,7 @@ objects either on the DataFrame's index or columns using the ``axis`` argument:
 
 .. ipython:: python
 
-   df.align(df2.ix[0], axis=1)
+   df.align(df2.iloc[0], axis=1)
 
 .. _basics.reindex_fill:
 
@@ -1159,13 +1403,16 @@ mapping (a dict or Series) or an arbitrary function.
    s.rename(str.upper)
 
 If you pass a function, it must return a value when called with any of the
-labels (and must produce a set of unique values). But if you pass a dict or
-Series, it need only contain a subset of the labels as keys:
+labels (and must produce a set of unique values). A dict or
+Series can also be used:
 
 .. ipython:: python
 
    df.rename(columns={'one' : 'foo', 'two' : 'bar'},
              index={'a' : 'apple', 'b' : 'banana', 'd' : 'durian'})
+
+If the mapping doesn't include a column/index label, it isn't renamed. Also
+extra labels in the mapping don't throw an error.
 
 The :meth:`~DataFrame.rename` method also provides an ``inplace`` named
 parameter that is by default ``False`` and copies the underlying data. Pass
@@ -1726,49 +1973,139 @@ then the more *general* one will be used as the result of the operation.
    # conversion of dtypes
    df3.astype('float32').dtypes
 
+
+Convert a subset of columns to a specified type using :meth:`~DataFrame.astype`
+
+.. ipython:: python
+
+   dft = pd.DataFrame({'a': [1,2,3], 'b': [4,5,6], 'c': [7, 8, 9]})
+   dft[['a','b']] = dft[['a','b']].astype(np.uint8)
+   dft
+   dft.dtypes
+
+.. versionadded:: 0.19.0
+
+Convert certain columns to a specific dtype by passing a dict to :meth:`~DataFrame.astype`
+
+.. ipython:: python
+
+   dft1 = pd.DataFrame({'a': [1,0,1], 'b': [4,5,6], 'c': [7, 8, 9]})
+   dft1 = dft1.astype({'a': np.bool, 'c': np.float64})
+   dft1
+   dft1.dtypes
+
+.. note::
+
+    When trying to convert a subset of columns to a specified type using :meth:`~DataFrame.astype`  and :meth:`~DataFrame.loc`, upcasting occurs.
+
+    :meth:`~DataFrame.loc` tries to fit in what we are assigning to the current dtypes, while ``[]`` will overwrite them taking the dtype from the right hand side. Therefore the following piece of code produces the unintended result.
+
+    .. ipython:: python
+
+       dft = pd.DataFrame({'a': [1,2,3], 'b': [4,5,6], 'c': [7, 8, 9]})
+       dft.loc[:, ['a', 'b']].astype(np.uint8).dtypes
+       dft.loc[:, ['a', 'b']] = dft.loc[:, ['a', 'b']].astype(np.uint8)
+       dft.dtypes
+
+.. _basics.object_conversion:
+
 object conversion
 ~~~~~~~~~~~~~~~~~
 
-:meth:`~DataFrame.convert_objects` is a method to try to force conversion of types from the ``object`` dtype to other types.
-To force conversion of specific types that are *number like*, e.g. could be a string that represents a number,
-pass ``convert_numeric=True``. This will force strings and numbers alike to be numbers if possible, otherwise
-they will be set to ``np.nan``.
+pandas offers various functions to try to force conversion of types from the ``object`` dtype to other types.
+The following functions are available for one dimensional object arrays or scalars:
+
+- :meth:`~pandas.to_numeric` (conversion to numeric dtypes)
+
+  .. ipython:: python
+
+     m = ['1.1', 2, 3]
+     pd.to_numeric(m)
+
+- :meth:`~pandas.to_datetime` (conversion to datetime objects)
+
+  .. ipython:: python
+
+     import datetime
+     m = ['2016-07-09', datetime.datetime(2016, 3, 2)]
+     pd.to_datetime(m)
+
+- :meth:`~pandas.to_timedelta` (conversion to timedelta objects)
+
+  .. ipython:: python
+
+     m = ['5us', pd.Timedelta('1day')]
+     pd.to_timedelta(m)
+
+To force a conversion, we can pass in an ``errors`` argument, which specifies how pandas should deal with elements
+that cannot be converted to desired dtype or object. By default, ``errors='raise'``, meaning that any errors encountered
+will be raised during the conversion process. However, if ``errors='coerce'``, these errors will be ignored and pandas
+will convert problematic elements to ``pd.NaT`` (for datetime and timedelta) or ``np.nan`` (for numeric). This might be
+useful if you are reading in data which is mostly of the desired dtype (e.g. numeric, datetime), but occasionally has
+non-conforming elements intermixed that you want to represent as missing:
 
 .. ipython:: python
-   :okwarning:
 
-   df3['D'] = '1.'
-   df3['E'] = '1'
-   df3.convert_objects(convert_numeric=True).dtypes
+    import datetime
+    m = ['apple', datetime.datetime(2016, 3, 2)]
+    pd.to_datetime(m, errors='coerce')
 
-   # same, but specific dtype conversion
-   df3['D'] = df3['D'].astype('float16')
-   df3['E'] = df3['E'].astype('int32')
-   df3.dtypes
+    m = ['apple', 2, 3]
+    pd.to_numeric(m, errors='coerce')
 
-To force conversion to ``datetime64[ns]``, pass ``convert_dates='coerce'``.
-This will convert any datetime-like object to dates, forcing other values to ``NaT``.
-This might be useful if you are reading in data which is mostly dates,
-but occasionally has non-dates intermixed and you want to represent as missing.
+    m = ['apple', pd.Timedelta('1day')]
+    pd.to_timedelta(m, errors='coerce')
+
+The ``errors`` parameter has a third option of ``errors='ignore'``, which will simply return the passed in data if it
+encounters any errors with the conversion to a desired data type:
 
 .. ipython:: python
 
-   import datetime
-   s = pd.Series([datetime.datetime(2001,1,1,0,0),
-                 'foo', 1.0, 1, pd.Timestamp('20010104'),
-                 '20010105'], dtype='O')
-   s
-   pd.to_datetime(s, errors='coerce')
+    import datetime
+    m = ['apple', datetime.datetime(2016, 3, 2)]
+    pd.to_datetime(m, errors='ignore')
 
-In addition, :meth:`~DataFrame.convert_objects` will attempt the *soft* conversion of any *object* dtypes, meaning that if all
-the objects in a Series are of the same type, the Series will have that dtype.
+    m = ['apple', 2, 3]
+    pd.to_numeric(m, errors='ignore')
+
+    m = ['apple', pd.Timedelta('1day')]
+    pd.to_timedelta(m, errors='ignore')
+
+In addition to object conversion, :meth:`~pandas.to_numeric` provides another argument ``downcast``, which gives the
+option of downcasting the newly (or already) numeric data to a smaller dtype, which can conserve memory:
+
+.. ipython:: python
+
+    m = ['1', 2, 3]
+    pd.to_numeric(m, downcast='integer')   # smallest signed int dtype
+    pd.to_numeric(m, downcast='signed')    # same as 'integer'
+    pd.to_numeric(m, downcast='unsigned')  # smallest unsigned int dtype
+    pd.to_numeric(m, downcast='float')     # smallest float dtype
+
+As these methods apply only to one-dimensional arrays, lists or scalars; they cannot be used directly on multi-dimensional objects such
+as DataFrames. However, with :meth:`~pandas.DataFrame.apply`, we can "apply" the function over each column efficiently:
+
+.. ipython:: python
+
+    import datetime
+    df = pd.DataFrame([['2016-07-09', datetime.datetime(2016, 3, 2)]] * 2, dtype='O')
+    df
+    df.apply(pd.to_datetime)
+
+    df = pd.DataFrame([['1.1', 2, 3]] * 2, dtype='O')
+    df
+    df.apply(pd.to_numeric)
+
+    df = pd.DataFrame([['5us', pd.Timedelta('1day')]] * 2, dtype='O')
+    df
+    df.apply(pd.to_timedelta)
 
 gotchas
 ~~~~~~~
 
 Performing selection operations on ``integer`` type data can easily upcast the data to ``floating``.
 The dtype of the input data will be preserved in cases where ``nans`` are not introduced (starting in 0.11.0)
-See also :ref:`integer na gotchas <gotchas.intna>`
+See also :ref:`Support for integer NA <gotchas.intna>`
 
 .. ipython:: python
 

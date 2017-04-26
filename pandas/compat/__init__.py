@@ -41,6 +41,7 @@ from collections import namedtuple
 PY2 = sys.version_info[0] == 2
 PY3 = (sys.version_info[0] >= 3)
 PY35 = (sys.version_info >= (3, 5))
+PY36 = (sys.version_info >= (3, 6))
 
 try:
     import __builtin__ as builtins
@@ -78,25 +79,25 @@ if PY3:
         args = [
             p.name for p in sig.parameters.values()
             if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
-            ]
+        ]
         varargs = [
             p.name for p in sig.parameters.values()
             if p.kind == inspect.Parameter.VAR_POSITIONAL
-            ]
+        ]
         varargs = varargs[0] if varargs else None
         keywords = [
             p.name for p in sig.parameters.values()
             if p.kind == inspect.Parameter.VAR_KEYWORD
-            ]
+        ]
         keywords = keywords[0] if keywords else None
         defaults = [
             p.default for p in sig.parameters.values()
             if p.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
             and p.default is not p.empty
-            ] or None
-        argspec = namedtuple('Signature',['args','defaults',
-                                'varargs','keywords'])
-        return argspec(args,defaults,varargs,keywords)
+        ] or None
+        argspec = namedtuple('Signature', ['args', 'defaults',
+                                           'varargs', 'keywords'])
+        return argspec(args, defaults, varargs, keywords)
 
     # have to explicitly put builtins into the namespace
     range = range
@@ -106,6 +107,10 @@ if PY3:
     reduce = functools.reduce
     long = int
     unichr = chr
+
+    # This was introduced in Python 3.3, but we don't support
+    # Python 3.x < 3.4, so checking PY3 is safe.
+    FileNotFoundError = FileNotFoundError
 
     # list-producing versions of the major Python iterating functions
     def lrange(*args, **kwargs):
@@ -124,6 +129,8 @@ else:
     # Python 2
     import re
     _name_re = re.compile(r"[a-zA-Z_][a-zA-Z0-9_]*$")
+
+    FileNotFoundError = IOError
 
     def isidentifier(s, dotted=False):
         return bool(_name_re.match(s))
@@ -163,7 +170,7 @@ if PY2:
     def itervalues(obj, **kw):
         return obj.itervalues(**kw)
 
-    next = lambda it : it.next()
+    next = lambda it: it.next()
 else:
     def iteritems(obj, **kw):
         return iter(obj.items(**kw))
@@ -175,6 +182,7 @@ else:
         return iter(obj.values(**kw))
 
     next = next
+
 
 def bind_method(cls, name, func):
     """Bind a method to class, python 2 and python 3 compatible.
@@ -242,6 +250,17 @@ if PY3:
         import lzma
         return lzma
 
+    def set_function_name(f, name, cls):
+        """ Bind the name/qualname attributes of the function """
+        f.__name__ = name
+        f.__qualname__ = '{klass}.{name}'.format(
+            klass=cls.__name__,
+            name=name)
+        f.__module__ = cls.__module__
+        return f
+
+    ResourceWarning = ResourceWarning
+
 else:
     string_types = basestring,
     integer_types = (int, long)
@@ -283,6 +302,14 @@ else:
         or raise ImportError if not available """
         from backports import lzma
         return lzma
+
+    def set_function_name(f, name, cls):
+        """ Bind the name attributes of the function """
+        f.__name__ = name
+        return f
+
+    class ResourceWarning(Warning):
+        pass
 
 string_and_binary_types = string_types + (binary_type,)
 
@@ -368,15 +395,23 @@ class OrderedDefaultdict(OrderedDict):
         return type(self), args, None, None, list(self.items())
 
 
-# https://github.com/pydata/pandas/pull/9123
+# https://github.com/pandas-dev/pandas/pull/9123
+def is_platform_little_endian():
+    """ am I little endian """
+    return sys.byteorder == 'little'
+
+
 def is_platform_windows():
     return sys.platform == 'win32' or sys.platform == 'cygwin'
+
 
 def is_platform_linux():
     return sys.platform == 'linux2'
 
+
 def is_platform_mac():
     return sys.platform == 'darwin'
+
 
 def is_platform_32bit():
     return struct.calcsize("P") * 8 < 64

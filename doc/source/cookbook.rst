@@ -7,6 +7,7 @@
 
    import pandas as pd
    import numpy as np
+   from pandas.compat import StringIO
 
    import random
    import os
@@ -65,19 +66,19 @@ An if-then on one column
 
 .. ipython:: python
 
-   df.ix[df.AAA >= 5,'BBB'] = -1; df
+   df.loc[df.AAA >= 5,'BBB'] = -1; df
 
 An if-then with assignment to 2 columns:
 
 .. ipython:: python
 
-   df.ix[df.AAA >= 5,['BBB','CCC']] = 555; df
+   df.loc[df.AAA >= 5,['BBB','CCC']] = 555; df
 
 Add another line with different logic, to do the -else
 
 .. ipython:: python
 
-   df.ix[df.AAA < 5,['BBB','CCC']] = 2000; df
+   df.loc[df.AAA < 5,['BBB','CCC']] = 2000; df
 
 Or use pandas where after you've set up a mask
 
@@ -107,10 +108,8 @@ Splitting
    df = pd.DataFrame(
         {'AAA' : [4,5,6,7], 'BBB' : [10,20,30,40],'CCC' : [100,50,-30,-50]}); df
 
-   dflow = df[df.AAA <= 5]
-   dfhigh = df[df.AAA > 5]
-
-   dflow; dfhigh
+   dflow = df[df.AAA <= 5]; dflow
+   dfhigh = df[df.AAA > 5]; dfhigh
 
 Building Criteria
 *****************
@@ -150,7 +149,7 @@ Building Criteria
         {'AAA' : [4,5,6,7], 'BBB' : [10,20,30,40],'CCC' : [100,50,-30,-50]}); df
 
    aValue = 43.0
-   df.ix[(df.CCC-aValue).abs().argsort()]
+   df.loc[(df.CCC-aValue).abs().argsort()]
 
 `Dynamically reduce a list of criteria using a binary operators
 <http://stackoverflow.com/questions/21058254/pandas-boolean-operation-in-a-python-list/21058331>`__
@@ -200,7 +199,7 @@ The :ref:`indexing <indexing>` docs.
    df[(df.AAA <= 6) & (df.index.isin([0,2,4]))]
 
 `Use loc for label-oriented slicing and iloc positional slicing
-<https://github.com/pydata/pandas/issues/2904>`__
+<https://github.com/pandas-dev/pandas/issues/2904>`__
 
 .. ipython:: python
 
@@ -218,9 +217,9 @@ There are 2 explicit slicing methods, with a third general case
 
    df.loc['bar':'kar'] #Label
 
-   #Generic
-   df.ix[0:3] #Same as .iloc[0:3]
-   df.ix['bar':'kar'] #Same as .loc['bar':'kar']
+   # Generic
+   df.iloc[0:3]
+   df.loc['bar':'kar']
 
 Ambiguity arises when an index consists of integers with a non-zero start or non-unit increment.
 
@@ -231,9 +230,6 @@ Ambiguity arises when an index consists of integers with a non-zero start or non
    df2.iloc[1:3] #Position-oriented
 
    df2.loc[1:3] #Label-oriented
-
-   df2.ix[1:3] #General, will mimic loc (label-oriented)
-   df2.ix[0:3] #General, will mimic iloc (position-oriented), as loc[0:3] would raise a KeyError
 
 `Using inverse operator (~) to take the complement of a mask
 <http://stackoverflow.com/questions/14986510/picking-out-elements-based-on-complement-of-indices-in-python-pandas>`__
@@ -410,7 +406,7 @@ Sorting
    df.sort_values(by=('Labs', 'II'), ascending=False)
 
 `Partial Selection, the need for sortedness;
-<https://github.com/pydata/pandas/issues/2995>`__
+<https://github.com/pandas-dev/pandas/issues/2995>`__
 
 Levels
 ******
@@ -441,7 +437,7 @@ Fill forward a reversed timeseries
 .. ipython:: python
 
    df = pd.DataFrame(np.random.randn(6,1), index=pd.date_range('2013-08-01', periods=6, freq='B'), columns=list('A'))
-   df.ix[3,'A'] = np.nan
+   df.loc[df.index[3], 'A'] = np.nan
    df
    df.reindex(df.index[::-1]).ffill()
 
@@ -546,7 +542,7 @@ Unlike agg, apply's callable is passed a sub-DataFrame which gives you access to
 
    agg_n_sort_order = code_groups[['data']].transform(sum).sort_values(by='data')
 
-   sorted_df = df.ix[agg_n_sort_order.index]
+   sorted_df = df.loc[agg_n_sort_order.index]
 
    sorted_df
 
@@ -679,6 +675,19 @@ The :ref:`Pivot <reshaping.pivot>` docs.
                        'Employed' : lambda x : sum(x),
                        'Grade' : lambda x : sum(x) / len(x)})
 
+`Plot pandas DataFrame with year over year data
+<http://stackoverflow.com/questions/30379789/plot-pandas-data-frame-with-year-over-year-data>`__
+
+To create year and month crosstabulation:
+
+.. ipython:: python
+
+   df = pd.DataFrame({'value': np.random.randn(36)},
+                     index=pd.date_range('2011-01-01', freq='M', periods=36))
+
+   pd.pivot_table(df, index=df.index.month, columns=df.index.year,
+                  values='value', aggfunc='sum')
+
 Apply
 *****
 
@@ -774,7 +783,7 @@ The :ref:`Resample <timeseries.resampling>` docs.
 <http://stackoverflow.com/questions/14569223/timegrouper-pandas>`__
 
 `Using TimeGrouper and another grouping to create subgroups, then apply a custom function
-<https://github.com/pydata/pandas/issues/3791>`__
+<https://github.com/pandas-dev/pandas/issues/3791>`__
 
 `Resampling with custom periods
 <http://stackoverflow.com/questions/15408156/resampling-with-custom-periods>`__
@@ -810,7 +819,7 @@ ignore_index is needed in pandas < v0.13, and depending on df construction
    df = df1.append(df2,ignore_index=True); df
 
 `Self Join of a DataFrame
-<https://github.com/pydata/pandas/issues/2996>`__
+<https://github.com/pandas-dev/pandas/issues/2996>`__
 
 .. ipython:: python
 
@@ -864,7 +873,7 @@ The :ref:`Plotting <visualization>` docs.
 <http://stackoverflow.com/questions/17891493/annotating-points-from-a-pandas-dataframe-in-matplotlib-plot>`__
 
 `Generate Embedded plots in excel files using Pandas, Vincent and xlsxwriter
-<http://pandas-xlsxwriter-charts.readthedocs.org/en/latest/introduction.html>`__
+<https://pandas-xlsxwriter-charts.readthedocs.io/>`__
 
 `Boxplot for each quartile of a stratifying variable
 <http://stackoverflow.com/questions/23232989/boxplot-stratified-by-column-in-python-pandas>`__
@@ -896,7 +905,7 @@ CSV
 
 The :ref:`CSV <io.read_csv_table>` docs
 
-`read_csv in action <http://wesmckinney.com/blog/?p=635>`__
+`read_csv in action <http://wesmckinney.com/blog/update-on-upcoming-pandas-v0-10-new-file-parser-other-performance-wins/>`__
 
 `appending to a csv
 <http://stackoverflow.com/questions/17134942/pandas-dataframe-output-end-of-csv>`__
@@ -923,7 +932,7 @@ using that handle to read.
 <http://stackoverflow.com/questions/15555005/get-inferred-dataframe-types-iteratively-using-chunksize>`__
 
 `Dealing with bad lines
-<http://github.com/pydata/pandas/issues/2886>`__
+<http://github.com/pandas-dev/pandas/issues/2886>`__
 
 `Dealing with bad lines II
 <http://nipunbatra.github.io/2013/06/reading-unclean-data-csv-using-pandas/>`__
@@ -974,9 +983,6 @@ Skip row between header and data
 
 .. ipython:: python
 
-    from io import StringIO
-    import pandas as pd
-
     data = """;;;;
      ;;;;
      ;;;;
@@ -1003,7 +1009,7 @@ Option 1: pass rows explicitly to skiprows
 
 .. ipython:: python
 
-    pd.read_csv(StringIO(data.decode('UTF-8')), sep=';', skiprows=[11,12],
+    pd.read_csv(StringIO(data), sep=';', skiprows=[11,12],
             index_col=0, parse_dates=True, header=10)
 
 Option 2: read column names and then data
@@ -1011,13 +1017,10 @@ Option 2: read column names and then data
 
 .. ipython:: python
 
-    pd.read_csv(StringIO(data.decode('UTF-8')), sep=';',
-            header=10, parse_dates=True, nrows=10).columns
-    columns = pd.read_csv(StringIO(data.decode('UTF-8')), sep=';',
-                      header=10, parse_dates=True, nrows=10).columns
-    pd.read_csv(StringIO(data.decode('UTF-8')), sep=';',
+    pd.read_csv(StringIO(data), sep=';', header=10, nrows=10).columns
+    columns = pd.read_csv(StringIO(data), sep=';', header=10, nrows=10).columns
+    pd.read_csv(StringIO(data), sep=';', index_col=0,
                 header=12, parse_dates=True, names=columns)
-
 
 
 .. _cookbook.sql:
@@ -1062,7 +1065,7 @@ The :ref:`HDFStores <io.hdf5>` docs
 <http://stackoverflow.com/questions/13926089/selecting-columns-from-pandas-hdfstore-table>`__
 
 `Managing heterogeneous data using a linked multiple table hierarchy
-<http://github.com/pydata/pandas/issues/3032>`__
+<http://github.com/pandas-dev/pandas/issues/3032>`__
 
 `Merging on-disk tables with millions of rows
 <http://stackoverflow.com/questions/14614512/merging-two-tables-with-millions-of-rows-in-python/14617925#14617925>`__
@@ -1203,7 +1206,7 @@ Timedeltas
 The :ref:`Timedeltas <timedeltas.timedeltas>` docs.
 
 `Using timedeltas
-<http://github.com/pydata/pandas/pull/2899>`__
+<http://github.com/pandas-dev/pandas/pull/2899>`__
 
 .. ipython:: python
 

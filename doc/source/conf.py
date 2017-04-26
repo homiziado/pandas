@@ -13,7 +13,16 @@
 import sys
 import os
 import re
+import inspect
 from pandas.compat import u, PY3
+
+# https://github.com/sphinx-doc/sphinx/pull/2325/files
+# Workaround for sphinx-build recursion limit overflow:
+# pickle.dump(doctree, f, pickle.HIGHEST_PROTOCOL)
+#  RuntimeError: maximum recursion depth exceeded while pickling an object
+#
+# Python's default allowed recursion depth is 1000.
+sys.setrecursionlimit(5000)
 
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
@@ -43,13 +52,16 @@ extensions = ['sphinx.ext.autodoc',
               'numpydoc', # used to parse numpy-style docstrings for autodoc
               'ipython_sphinxext.ipython_directive',
               'ipython_sphinxext.ipython_console_highlighting',
+              'IPython.sphinxext.ipython_console_highlighting',  # lowercase didn't work
               'sphinx.ext.intersphinx',
               'sphinx.ext.coverage',
-              'sphinx.ext.pngmath',
+              'sphinx.ext.mathjax',
               'sphinx.ext.ifconfig',
+              'sphinx.ext.linkcode',
+              'nbsphinx',
               ]
 
-
+exclude_patterns = ['**.ipynb_checkpoints']
 
 with open("index.rst") as f:
     index_rst_lines = f.readlines()
@@ -60,15 +72,16 @@ with open("index.rst") as f:
 # JP: added from sphinxdocs
 autosummary_generate = False
 
-if any([re.match("\s*api\s*",l) for l in index_rst_lines]):
+if any([re.match("\s*api\s*", l) for l in index_rst_lines]):
     autosummary_generate = True
 
 files_to_delete = []
 for f in os.listdir(os.path.dirname(__file__)):
-    if not f.endswith('.rst') or f.startswith('.') or os.path.basename(f) == 'index.rst':
+    if (not f.endswith(('.ipynb', '.rst')) or
+            f.startswith('.') or os.path.basename(f) == 'index.rst'):
         continue
 
-    _file_basename = f.split('.rst')[0]
+    _file_basename = os.path.splitext(f)[0]
     _regex_to_match = "\s*{}\s*$".format(_file_basename)
     if not any([re.match(_regex_to_match, line) for line in index_rst_lines]):
         files_to_delete.append(f)
@@ -251,6 +264,9 @@ html_use_modindex = True
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'pandas'
 
+# -- Options for nbsphinx ------------------------------------------------
+
+nbsphinx_allow_errors = True
 
 # -- Options for LaTeX output --------------------------------------------
 
@@ -288,19 +304,20 @@ latex_documents = [
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    'statsmodels': ('http://statsmodels.sourceforge.net/devel/', None),
+    'statsmodels': ('http://www.statsmodels.org/devel/', None),
     'matplotlib': ('http://matplotlib.org/', None),
     'python': ('http://docs.python.org/3', None),
     'numpy': ('http://docs.scipy.org/doc/numpy', None),
-    'py': ('http://pylib.readthedocs.org/en/latest/', None)
+    'scipy': ('http://docs.scipy.org/doc/scipy/reference', None),
+    'py': ('https://pylib.readthedocs.io/en/latest/', None)
 }
 import glob
 autosummary_generate = glob.glob("*.rst")
 
 # extlinks alias
-extlinks = {'issue': ('https://github.com/pydata/pandas/issues/%s',
+extlinks = {'issue': ('https://github.com/pandas-dev/pandas/issues/%s',
                       'GH'),
-            'wiki': ('https://github.com/pydata/pandas/wiki/%s',
+            'wiki': ('https://github.com/pandas-dev/pandas/wiki/%s',
                      'wiki ')}
 
 ipython_exec_lines = [
@@ -317,9 +334,27 @@ ipython_exec_lines = [
 # Add custom Documenter to handle attributes/methods of an AccessorProperty
 # eg pandas.Series.str and pandas.Series.dt (see GH9322)
 
+import sphinx
 from sphinx.util import rpartition
 from sphinx.ext.autodoc import Documenter, MethodDocumenter, AttributeDocumenter
 from sphinx.ext.autosummary import Autosummary
+
+
+class AccessorDocumenter(MethodDocumenter):
+    """
+    Specialized Documenter subclass for accessors.
+    """
+
+    objtype = 'accessor'
+    directivetype = 'method'
+
+    # lower than MethodDocumenter so this is not chosen for normal methods
+    priority = 0.6
+
+    def format_signature(self):
+        # this method gives an error/warning for the accessors, therefore
+        # overriding it (accessor has no arguments)
+        return ''
 
 
 class AccessorLevelDocumenter(Documenter):
@@ -364,7 +399,10 @@ class AccessorLevelDocumenter(Documenter):
             if not modname:
                 modname = self.env.temp_data.get('autodoc:module')
             if not modname:
-                modname = self.env.temp_data.get('py:module')
+                if sphinx.__version__ > '1.3':
+                    modname = self.env.ref_context.get('py:module')
+                else:
+                    modname = self.env.temp_data.get('py:module')
             # ... else, it stays None, which means invalid
         return modname, parents + [base]
 
@@ -374,11 +412,16 @@ class AccessorAttributeDocumenter(AccessorLevelDocumenter, AttributeDocumenter):
     objtype = 'accessorattribute'
     directivetype = 'attribute'
 
+    # lower than AttributeDocumenter so this is not chosen for normal attributes
+    priority = 0.6
 
 class AccessorMethodDocumenter(AccessorLevelDocumenter, MethodDocumenter):
 
     objtype = 'accessormethod'
     directivetype = 'method'
+
+    # lower than MethodDocumenter so this is not chosen for normal methods
+    priority = 0.6
 
 
 class AccessorCallableDocumenter(AccessorLevelDocumenter, MethodDocumenter):
@@ -419,6 +462,55 @@ class PandasAutosummary(Autosummary):
         return items
 
 
+# based on numpy doc/source/conf.py
+def linkcode_resolve(domain, info):
+    """
+    Determine the URL corresponding to Python object
+    """
+    if domain != 'py':
+        return None
+
+    modname = info['module']
+    fullname = info['fullname']
+
+    submod = sys.modules.get(modname)
+    if submod is None:
+        return None
+
+    obj = submod
+    for part in fullname.split('.'):
+        try:
+            obj = getattr(obj, part)
+        except:
+            return None
+
+    try:
+        fn = inspect.getsourcefile(obj)
+    except:
+        fn = None
+    if not fn:
+        return None
+
+    try:
+        source, lineno = inspect.getsourcelines(obj)
+    except:
+        lineno = None
+
+    if lineno:
+        linespec = "#L%d-L%d" % (lineno, lineno + len(source) - 1)
+    else:
+        linespec = ""
+
+    fn = os.path.relpath(fn, start=os.path.dirname(pandas.__file__))
+
+    if '+' in pandas.__version__:
+        return "http://github.com/pandas-dev/pandas/blob/master/pandas/%s%s" % (
+            fn, linespec)
+    else:
+        return "http://github.com/pandas-dev/pandas/blob/v%s/pandas/%s%s" % (
+            pandas.__version__, fn, linespec)
+
+
 # remove the docstring of the flags attribute (inherited from numpy ndarray)
 # because these give doc build errors (see GH issue 5331)
 def remove_flags_docstring(app, what, name, obj, options, lines):
@@ -427,6 +519,7 @@ def remove_flags_docstring(app, what, name, obj, options, lines):
 
 def setup(app):
     app.connect("autodoc-process-docstring", remove_flags_docstring)
+    app.add_autodocumenter(AccessorDocumenter)
     app.add_autodocumenter(AccessorAttributeDocumenter)
     app.add_autodocumenter(AccessorMethodDocumenter)
     app.add_autodocumenter(AccessorCallableDocumenter)

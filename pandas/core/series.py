@@ -13,17 +13,38 @@ from numpy import nan, ndarray
 import numpy as np
 import numpy.ma as ma
 
-from pandas.core.common import (isnull, notnull, is_bool_indexer,
-                                _default_index, _maybe_upcast,
-                                _asarray_tuplesafe, _infer_dtype_from_scalar,
-                                is_list_like, _values_from_object,
-                                is_categorical_dtype, needs_i8_conversion,
-                                i8_boxer, _possibly_cast_to_datetime,
-                                _possibly_castable, _possibly_convert_platform,
-                                _try_sort, is_internal_type, is_datetimetz,
-                                _maybe_match_name, ABCSparseArray,
-                                _coerce_to_dtype, SettingWithCopyError,
-                                _maybe_box_datetimelike, ABCDataFrame,
+from pandas.core.dtypes.common import (
+    is_categorical_dtype,
+    is_bool,
+    is_integer, is_integer_dtype,
+    is_float_dtype,
+    is_extension_type, is_datetimetz,
+    is_datetimelike,
+    is_datetime64tz_dtype,
+    is_timedelta64_dtype,
+    is_list_like,
+    is_hashable,
+    is_iterator,
+    is_dict_like,
+    is_scalar,
+    _is_unorderable_exception,
+    _ensure_platform_int,
+    pandas_dtype)
+from pandas.core.dtypes.generic import ABCSparseArray, ABCDataFrame
+from pandas.core.dtypes.cast import (
+    maybe_upcast, infer_dtype_from_scalar,
+    maybe_convert_platform,
+    maybe_cast_to_datetime, maybe_castable)
+from pandas.core.dtypes.missing import isnull, notnull
+
+from pandas.core.common import (is_bool_indexer,
+                                _default_index,
+                                _asarray_tuplesafe,
+                                _values_from_object,
+                                _try_sort,
+                                _maybe_match_name,
+                                SettingWithCopyError,
+                                _maybe_box_datetimelike,
                                 _dict_compat)
 from pandas.core.index import (Index, MultiIndex, InvalidIndexError,
                                Float64Index, _ensure_index)
@@ -32,34 +53,27 @@ from pandas.core import generic, base
 from pandas.core.internals import SingleBlockManager
 from pandas.core.categorical import Categorical, CategoricalAccessor
 import pandas.core.strings as strings
-from pandas.tseries.common import (maybe_to_datetimelike,
-                                   CombinedDatetimelikeProperties)
-from pandas.tseries.index import DatetimeIndex
-from pandas.tseries.tdi import TimedeltaIndex
-from pandas.tseries.period import PeriodIndex, Period
+from pandas.core.indexes.accessors import (
+    maybe_to_datetimelike, CombinedDatetimelikeProperties)
+from pandas.core.indexes.datetimes import DatetimeIndex
+from pandas.core.indexes.timedeltas import TimedeltaIndex
+from pandas.core.indexes.period import PeriodIndex
 from pandas import compat
 from pandas.util.terminal import get_terminal_size
-from pandas.util.validators import validate_args
 from pandas.compat import zip, u, OrderedDict, StringIO
-
+from pandas.compat.numpy import function as nv
 
 import pandas.core.ops as ops
-from pandas.core import algorithms
+import pandas.core.algorithms as algorithms
 
 import pandas.core.common as com
-import pandas.core.datetools as datetools
-import pandas.core.format as fmt
 import pandas.core.nanops as nanops
+import pandas.io.formats.format as fmt
 from pandas.util.decorators import Appender, deprecate_kwarg, Substitution
+from pandas.util.validators import validate_bool_kwarg
 
-import pandas.lib as lib
-import pandas.tslib as tslib
-import pandas.index as _index
-
-from numpy import percentile as _quantile
+from pandas._libs import index as libindex, tslib as libts, lib, iNaT
 from pandas.core.config import get_option
-
-from pandas import _np_version_under1p9
 
 __all__ = ['Series']
 
@@ -67,7 +81,9 @@ _shared_doc_kwargs = dict(
     axes='index', klass='Series', axes_single_arg="{0, 'index'}",
     inplace="""inplace : boolean, default False
         If True, performs operation inplace and returns None.""",
-    duplicated='Series')
+    unique='np.ndarray', duplicated='Series',
+    optional_by='',
+    versionadded_to_excel='\n    .. versionadded:: 0.20.0\n')
 
 
 def _coerce_method(converter):
@@ -90,11 +106,11 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
     """
     One-dimensional ndarray with axis labels (including time series).
 
-    Labels need not be unique but must be any hashable type. The object
+    Labels need not be unique but must be a hashable type. The object
     supports both integer- and label-based indexing and provides a host of
     methods for performing operations involving the index. Statistical
     methods from ndarray have been overridden to automatically exclude
-    missing data (currently represented as NaN)
+    missing data (currently represented as NaN).
 
     Operations between Series (+, -, /, *, **) align values based on their
     associated index values-- they need not be the same length. The result
@@ -105,8 +121,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
     data : array-like, dict, or scalar value
         Contains data stored in Series
     index : array-like or Index (1d)
-        Values must be unique and hashable, same length as data. Index
-        object (or other iterable of same length as data) Will default to
+        Values must be hashable and have the same length as `data`.
+        Non-unique index values are allowed. Will default to
         RangeIndex(len(data)) if not provided. If both a dict and index
         sequence are used, the index will override the keys found in the
         dict.
@@ -174,7 +190,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                         if len(data):
                             # coerce back to datetime objects for lookup
                             data = _dict_compat(data)
-                            data = lib.fast_multiget(data, index.astype('O'),
+                            data = lib.fast_multiget(data,
+                                                     index.asobject.values,
                                                      default=np.nan)
                         else:
                             data = np.nan
@@ -221,7 +238,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             # create/copy the manager
             if isinstance(data, SingleBlockManager):
                 if dtype is not None:
-                    data = data.astype(dtype=dtype, raise_on_error=False)
+                    data = data.astype(dtype=dtype, raise_on_error=False,
+                                       copy=copy)
                 elif copy:
                     data = data.copy()
             else:
@@ -240,7 +258,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                    fastpath=False):
         # return a sparse series here
         if isinstance(arr, ABCSparseArray):
-            from pandas.sparse.series import SparseSeries
+            from pandas.core.sparse.series import SparseSeries
             cls = SparseSeries
 
         return cls(arr, index=index, name=name, dtype=dtype, copy=copy,
@@ -260,13 +278,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
     def _can_hold_na(self):
         return self._data._can_hold_na
 
-    @property
-    def is_time_series(self):
-        warnings.warn("is_time_series is deprecated. Please use "
-                      "Series.index.is_all_dates", FutureWarning, stacklevel=2)
-        # return self._subtyp in ['time_series', 'sparse_time_series']
-        return self.index.is_all_dates
-
     _index = None
 
     def _set_axis(self, axis, labels, fastpath=False):
@@ -277,14 +288,18 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         is_all_dates = labels.is_all_dates
         if is_all_dates:
-
             if not isinstance(labels,
                               (DatetimeIndex, PeriodIndex, TimedeltaIndex)):
-                labels = DatetimeIndex(labels)
+                try:
+                    labels = DatetimeIndex(labels)
+                    # need to set here becuase we changed the index
+                    if fastpath:
+                        self._data.set_axis(axis, labels)
+                except (libts.OutOfBoundsDatetime, ValueError):
+                    # labels may exceeds datetime bounds,
+                    # or not be a DatetimeIndex
+                    pass
 
-                # need to set here becuase we changed the index
-                if fastpath:
-                    self._data.set_axis(axis, labels)
         self._set_subtyp(is_all_dates)
 
         object.__setattr__(self, '_index', labels)
@@ -307,7 +322,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     @name.setter
     def name(self, value):
-        if value is not None and not com.is_hashable(value):
+        if value is not None and not is_hashable(value):
             raise TypeError('Series.name must be a hashable type')
         object.__setattr__(self, '_name', value)
 
@@ -357,10 +372,10 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         Timezone aware datetime data is converted to UTC:
 
         >>> pd.Series(pd.date_range('20130101', periods=3,
-                                    tz='US/Eastern')).values
-        array(['2013-01-01T00:00:00.000000000-0500',
-               '2013-01-02T00:00:00.000000000-0500',
-               '2013-01-03T00:00:00.000000000-0500'], dtype='datetime64[ns]')
+        ...                         tz='US/Eastern')).values
+        array(['2013-01-01T05:00:00.000000000',
+               '2013-01-02T05:00:00.000000000',
+               '2013-01-03T05:00:00.000000000'], dtype='datetime64[ns]')
 
         """
         return self._data.external_values()
@@ -374,6 +389,15 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         """ same as values (but handles sparseness conversions); is a view """
         return self._data.get_values()
 
+    @property
+    def asobject(self):
+        """
+        return object Series which contains boxed values
+
+        *this is an internal non-public method*
+        """
+        return self._data.asobject
+
     # ops
     def ravel(self, order='C'):
         """
@@ -385,7 +409,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         """
         return self._values.ravel(order=order)
 
-    def compress(self, condition, axis=0, out=None, **kwargs):
+    def compress(self, condition, *args, **kwargs):
         """
         Return selected slices of an array along given axis as a Series
 
@@ -393,6 +417,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         --------
         numpy.ndarray.compress
         """
+        nv.validate_compress(args, kwargs)
         return self[condition]
 
     def nonzero(self):
@@ -423,7 +448,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     def put(self, *args, **kwargs):
         """
-        return a ndarray with the values put
+        Applies the `put` method to its `values` attribute
+        if it has one.
 
         See also
         --------
@@ -543,7 +569,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             # dispatch to the values if we need
             values = self._values
             if isinstance(values, np.ndarray):
-                return _index.get_value_at(values, i)
+                return libindex.get_value_at(values, i)
             else:
                 return values[i]
         except IndexError:
@@ -557,7 +583,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 if isinstance(label, Index):
                     return self.take(i, axis=axis, convert=True)
                 else:
-                    return _index.get_value_at(self, i)
+                    return libindex.get_value_at(self, i)
 
     @property
     def _is_mixed_type(self):
@@ -569,10 +595,11 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         return self._get_values(slobj)
 
     def __getitem__(self, key):
+        key = com._apply_if_callable(key, self)
         try:
             result = self.index.get_value(self, key)
 
-            if not lib.isscalar(result):
+            if not is_scalar(result):
                 if is_list_like(result) and not isinstance(result, Series):
 
                     # we need to box if we have a non-unique index here
@@ -605,10 +632,10 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         except Exception:
             raise
 
-        if com.is_iterator(key):
+        if is_iterator(key):
             key = list(key)
 
-        if is_bool_indexer(key):
+        if com.is_bool_indexer(key):
             key = check_bool_indexer(self.index, key)
 
         return self._get_with(key)
@@ -652,7 +679,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 try:
                     # handle the dup indexing case (GH 4246)
                     if isinstance(key, (list, tuple)):
-                        return self.ix[key]
+                        return self.loc[key]
 
                     return self.reindex(key)
                 except Exception:
@@ -684,6 +711,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             return self._values[indexer]
 
     def __setitem__(self, key, value):
+        key = com._apply_if_callable(key, self)
+
         def setitem(key, value):
             try:
                 self._set_with_engine(key, value)
@@ -692,7 +721,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 raise
             except (KeyError, ValueError):
                 values = self._values
-                if (com.is_integer(key) and
+                if (is_integer(key) and
                         not self.index.inferred_type == 'integer'):
 
                     values[key] = value
@@ -700,12 +729,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 elif key is Ellipsis:
                     self[:] = value
                     return
-                elif is_bool_indexer(key):
+                elif com.is_bool_indexer(key):
                     pass
-                elif com.is_timedelta64_dtype(self.dtype):
+                elif is_timedelta64_dtype(self.dtype):
                     # reassign a null value to iNaT
                     if isnull(value):
-                        value = tslib.iNaT
+                        value = iNaT
 
                         try:
                             self.index._engine.set_value(self._values, key,
@@ -723,13 +752,13 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                     raise ValueError("Can only tuple-index with a MultiIndex")
 
                 # python 3 type errors should be raised
-                if 'unorderable' in str(e):  # pragma: no cover
+                if _is_unorderable_exception(e):
                     raise IndexError(key)
 
-            if is_bool_indexer(key):
+            if com.is_bool_indexer(key):
                 key = check_bool_indexer(self.index, key)
                 try:
-                    self.where(~key, value, inplace=True)
+                    self._where(~key, value, inplace=True)
                     return
                 except InvalidIndexError:
                     pass
@@ -801,32 +830,40 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         self._data = self._data.setitem(indexer=key, value=value)
         self._maybe_update_cacher()
 
-    # help out SparseSeries
-    _get_val_at = ndarray.__getitem__
-
-    def repeat(self, reps):
+    @deprecate_kwarg(old_arg_name='reps', new_arg_name='repeats')
+    def repeat(self, repeats, *args, **kwargs):
         """
-        return a new Series with the values repeated reps times
+        Repeat elements of an Series. Refer to `numpy.ndarray.repeat`
+        for more information about the `repeats` argument.
 
         See also
         --------
         numpy.ndarray.repeat
         """
-        new_index = self.index.repeat(reps)
-        new_values = self._values.repeat(reps)
+        nv.validate_repeat(args, kwargs)
+        new_index = self.index.repeat(repeats)
+        new_values = self._values.repeat(repeats)
         return self._constructor(new_values,
                                  index=new_index).__finalize__(self)
 
     def reshape(self, *args, **kwargs):
         """
+        DEPRECATED: calling this method will raise an error in a
+        future release. Please call ``.values.reshape(...)`` instead.
+
         return an ndarray with the values shape
         if the specified shape matches exactly the current shape, then
         return self (for compat)
 
         See also
         --------
-        numpy.ndarray.take
+        numpy.ndarray.reshape
         """
+        warnings.warn("reshape is deprecated and will raise "
+                      "in a subsequent release. Please use "
+                      ".values.reshape(...) instead", FutureWarning,
+                      stacklevel=2)
+
         if len(args) == 1 and hasattr(args[0], '__iter__'):
             shape = args[0]
         else:
@@ -834,34 +871,10 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         if tuple(shape) == self.shape:
             # XXX ignoring the "order" keyword.
+            nv.validate_reshape(tuple(), kwargs)
             return self
 
         return self._values.reshape(shape, **kwargs)
-
-    def iget_value(self, i, axis=0):
-        """
-        DEPRECATED. Use ``.iloc[i]`` or ``.iat[i]`` instead
-        """
-        warnings.warn("iget_value(i) is deprecated. Please use .iloc[i] or "
-                      ".iat[i]", FutureWarning, stacklevel=2)
-        return self._ixs(i)
-
-    def iget(self, i, axis=0):
-        """
-        DEPRECATED. Use ``.iloc[i]`` or ``.iat[i]`` instead
-        """
-
-        warnings.warn("iget(i) is deprecated. Please use .iloc[i] or .iat[i]",
-                      FutureWarning, stacklevel=2)
-        return self._ixs(i)
-
-    def irow(self, i, axis=0):
-        """
-        DEPRECATED. Use ``.iloc[i]`` or ``.iat[i]`` instead
-        """
-        warnings.warn("irow(i) is deprecated. Please use .iloc[i] or .iat[i]",
-                      FutureWarning, stacklevel=2)
-        return self._ixs(i)
 
     def get_value(self, label, takeable=False):
         """
@@ -933,6 +946,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         ----------
         resetted : DataFrame, or Series if drop == True
         """
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         if drop:
             new_index = _default_index(len(self))
             if level is not None and isinstance(self.index, MultiIndex):
@@ -967,9 +981,10 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         width, height = get_terminal_size()
         max_rows = (height if get_option("display.max_rows") == 0 else
                     get_option("display.max_rows"))
+        show_dimensions = get_option("display.show_dimensions")
 
         self.to_string(buf=buf, name=self.name, dtype=self.dtype,
-                       max_rows=max_rows)
+                       max_rows=max_rows, length=show_dimensions)
         result = buf.getvalue()
 
         return result
@@ -1008,31 +1023,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         formatted : string (if not buffer passed)
         """
 
-        the_repr = self._get_repr(float_format=float_format, na_rep=na_rep,
-                                  header=header, index=index, length=length,
-                                  dtype=dtype, name=name, max_rows=max_rows)
-
-        # catch contract violations
-        if not isinstance(the_repr, compat.text_type):
-            raise AssertionError("result must be of type unicode, type"
-                                 " of result is {0!r}"
-                                 "".format(the_repr.__class__.__name__))
-
-        if buf is None:
-            return the_repr
-        else:
-            try:
-                buf.write(the_repr)
-            except AttributeError:
-                with open(buf, 'w') as f:
-                    f.write(the_repr)
-
-    def _get_repr(self, name=False, header=True, index=True, length=True,
-                  dtype=True, na_rep='NaN', float_format=None, max_rows=None):
-        """
-
-        Internal function, should always return unicode string
-        """
         formatter = fmt.SeriesFormatter(self, name=name, length=length,
                                         header=header, index=index,
                                         dtype=dtype, na_rep=na_rep,
@@ -1040,19 +1030,26 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                                         max_rows=max_rows)
         result = formatter.to_string()
 
-        # TODO: following check prob. not neces.
+        # catch contract violations
         if not isinstance(result, compat.text_type):
             raise AssertionError("result must be of type unicode, type"
                                  " of result is {0!r}"
                                  "".format(result.__class__.__name__))
-        return result
+
+        if buf is None:
+            return result
+        else:
+            try:
+                buf.write(result)
+            except AttributeError:
+                with open(buf, 'w') as f:
+                    f.write(result)
 
     def __iter__(self):
         """ provide iteration over the values of the Series
         box values if necessary """
-        if needs_i8_conversion(self.dtype):
-            boxer = i8_boxer(self)
-            return (boxer(x) for x in self._values)
+        if is_datetimelike(self):
+            return (_maybe_box_datetimelike(x) for x in self._values)
         else:
             return iter(self._values)
 
@@ -1074,7 +1071,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     def tolist(self):
         """ Convert Series to a nested list """
-        return list(self)
+        return list(self.asobject)
 
     def to_dict(self):
         """
@@ -1120,12 +1117,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         -------
         sp : SparseSeries
         """
-        from pandas.core.sparse import SparseSeries
+        from pandas.core.sparse.series import SparseSeries
         return SparseSeries(self, kind=kind,
                             fill_value=fill_value).__finalize__(self)
 
     def _set_name(self, name, inplace=False):
-        '''
+        """
         Set the Series name.
 
         Parameters
@@ -1133,7 +1130,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         name : str
         inplace : bool
             whether to modify `self` directly or return a copy
-        '''
+        """
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         ser = self if inplace else self.copy()
         ser.name = name
         return ser
@@ -1179,16 +1177,9 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                                  dtype='int64').__finalize__(self)
 
     def mode(self):
-        """Returns the mode(s) of the dataset.
+        """Return the mode(s) of the dataset.
 
-        Empty if nothing occurs at least 2 times.  Always returns Series even
-        if only one value.
-
-        Parameters
-        ----------
-        sort : bool, default True
-            If True, will lexicographically sort values, if False skips
-            sorting. Result ordering when ``sort=False`` is not defined.
+        Always returns Series even if only one value is returned.
 
         Returns
         -------
@@ -1197,19 +1188,28 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         # TODO: Add option for bins like value_counts()
         return algorithms.mode(self)
 
-    @deprecate_kwarg('take_last', 'keep', mapping={True: 'last',
-                                                   False: 'first'})
+    @Appender(base._shared_docs['unique'] % _shared_doc_kwargs)
+    def unique(self):
+        result = super(Series, self).unique()
+
+        if is_datetime64tz_dtype(self.dtype):
+            # we are special casing datetime64tz_dtype
+            # to return an object array of tz-aware Timestamps
+
+            # TODO: it must return DatetimeArray with tz in pandas 2.0
+            result = result.asobject.values
+
+        return result
+
     @Appender(base._shared_docs['drop_duplicates'] % _shared_doc_kwargs)
     def drop_duplicates(self, keep='first', inplace=False):
         return super(Series, self).drop_duplicates(keep=keep, inplace=inplace)
 
-    @deprecate_kwarg('take_last', 'keep', mapping={True: 'last',
-                                                   False: 'first'})
     @Appender(base._shared_docs['duplicated'] % _shared_doc_kwargs)
     def duplicated(self, keep='first'):
         return super(Series, self).duplicated(keep=keep)
 
-    def idxmin(self, axis=None, out=None, skipna=True):
+    def idxmin(self, axis=None, skipna=True, *args, **kwargs):
         """
         Index of first occurrence of minimum of values.
 
@@ -1231,12 +1231,13 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         DataFrame.idxmin
         numpy.ndarray.argmin
         """
+        skipna = nv.validate_argmin_with_skipna(skipna, args, kwargs)
         i = nanops.nanargmin(_values_from_object(self), skipna=skipna)
         if i == -1:
             return np.nan
         return self.index[i]
 
-    def idxmax(self, axis=None, out=None, skipna=True):
+    def idxmax(self, axis=None, skipna=True, *args, **kwargs):
         """
         Index of first occurrence of maximum of values.
 
@@ -1258,6 +1259,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         DataFrame.idxmax
         numpy.ndarray.argmax
         """
+        skipna = nv.validate_argmax_with_skipna(skipna, args, kwargs)
         i = nanops.nanargmax(_values_from_object(self), skipna=skipna)
         if i == -1:
             return np.nan
@@ -1267,7 +1269,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
     argmin = idxmin
     argmax = idxmax
 
-    def round(self, decimals=0, *args):
+    def round(self, decimals=0, *args, **kwargs):
         """
         Round each value in a Series to the given number of decimals.
 
@@ -1288,9 +1290,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         DataFrame.round
 
         """
-        validate_args(args, min_length=0, max_length=1,
-                      msg="Inplace rounding is not supported")
-
+        nv.validate_round(args, kwargs)
         result = _values_from_object(self).round(decimals)
         result = self._constructor(result, index=self.index).__finalize__(self)
 
@@ -1338,26 +1338,15 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         self._check_percentile(q)
 
-        if _np_version_under1p9:
-            if interpolation != 'linear':
-                raise ValueError("Interpolation methods other than linear "
-                                 "are not supported in numpy < 1.9.")
+        result = self._data.quantile(qs=q, interpolation=interpolation)
 
-        def multi(values, qs, **kwargs):
-            if com.is_list_like(qs):
-                values = [_quantile(values, x * 100, **kwargs) for x in qs]
-                # let empty result to be Float64Index
-                qs = Float64Index(qs)
-                return self._constructor(values, index=qs, name=self.name)
-            else:
-                return _quantile(values, qs * 100, **kwargs)
-
-        kwargs = dict()
-        if not _np_version_under1p9:
-            kwargs.update({'interpolation': interpolation})
-
-        return self._maybe_box(lambda values: multi(values, q, **kwargs),
-                               dropna=True)
+        if is_list_like(q):
+            return self._constructor(result,
+                                     index=Float64Index(q),
+                                     name=self.name)
+        else:
+            # scalar
+            return result
 
     def corr(self, other, method='pearson', min_periods=None):
         """
@@ -1419,7 +1408,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         -------
         diffed : Series
         """
-        result = com.diff(_values_from_object(self), periods)
+        result = algorithms.diff(_values_from_object(self), periods)
         return self._constructor(result, index=self.index).__finalize__(self)
 
     def autocorr(self, lag=1):
@@ -1479,22 +1468,30 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         else:  # pragma: no cover
             raise TypeError('unsupported type: %s' % type(other))
 
-    @Substitution(klass='Series', value='v')
+    @Substitution(klass='Series')
     @Appender(base._shared_docs['searchsorted'])
-    def searchsorted(self, v, side='left', sorter=None):
-        return self._values.searchsorted(Series(v)._values,
+    @deprecate_kwarg(old_arg_name='v', new_arg_name='value')
+    def searchsorted(self, value, side='left', sorter=None):
+        if sorter is not None:
+            sorter = _ensure_platform_int(sorter)
+        return self._values.searchsorted(Series(value)._values,
                                          side=side, sorter=sorter)
 
     # -------------------------------------------------------------------
     # Combination
 
-    def append(self, to_append, verify_integrity=False):
+    def append(self, to_append, ignore_index=False, verify_integrity=False):
         """
         Concatenate two or more Series.
 
         Parameters
         ----------
         to_append : Series or list/tuple of Series
+        ignore_index : boolean, default False
+            If True, do not use the index labels.
+
+            .. versionadded: 0.19.0
+
         verify_integrity : boolean, default False
             If True, raise Exception on creating index with duplicates
 
@@ -1525,20 +1522,33 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         5    6
         dtype: int64
 
+        With `ignore_index` set to True:
+
+        >>> s1.append(s2, ignore_index=True)
+        0    1
+        1    2
+        2    3
+        3    4
+        4    5
+        5    6
+        dtype: int64
+
         With `verify_integrity` set to True:
 
         >>> s1.append(s2, verify_integrity=True)
+        Traceback (most recent call last):
+        ...
         ValueError: Indexes have overlapping values: [0, 1, 2]
 
 
         """
-        from pandas.tools.merge import concat
+        from pandas.core.reshape.concat import concat
 
         if isinstance(to_append, (list, tuple)):
             to_concat = [self] + to_append
         else:
             to_concat = [self, to_append]
-        return concat(to_concat, ignore_index=False,
+        return concat(to_concat, ignore_index=ignore_index,
                       verify_integrity=verify_integrity)
 
     def _binop(self, other, func, level=None, fill_value=None):
@@ -1585,7 +1595,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             this_vals[this_mask & mask] = fill_value
             other_vals[other_mask & mask] = fill_value
 
-        result = func(this_vals, other_vals)
+        with np.errstate(all='ignore'):
+            result = func(this_vals, other_vals)
         name = _maybe_match_name(self, other)
         result = self._constructor(result, index=new_index, name=name)
         result = result.__finalize__(self)
@@ -1617,10 +1628,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             for i, idx in enumerate(new_index):
                 lv = self.get(idx, fill_value)
                 rv = other.get(idx, fill_value)
-                new_values[i] = func(lv, rv)
+                with np.errstate(all='ignore'):
+                    new_values[i] = func(lv, rv)
         else:
             new_index = self.index
-            new_values = func(self._values, other)
+            with np.errstate(all='ignore'):
+                new_values = func(self._values, other)
             new_name = self.name
         return self._constructor(new_values, index=new_index, name=new_name)
 
@@ -1667,6 +1680,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
     def sort_values(self, axis=0, ascending=True, inplace=False,
                     kind='quicksort', na_position='last'):
 
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         axis = self._get_axis_number(axis)
 
         # GH 5856/5853
@@ -1694,6 +1708,15 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         argsorted = _try_kind_sort(arr[good])
 
+        if is_list_like(ascending):
+            if len(ascending) != 1:
+                raise ValueError('Length of ascending (%d) must be 1 '
+                                 'for Series' % (len(ascending)))
+            ascending = ascending[0]
+
+        if not is_bool(ascending):
+            raise ValueError('ascending must be boolean')
+
         if not ascending:
             argsorted = argsorted[::-1]
 
@@ -1717,21 +1740,41 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     @Appender(generic._shared_docs['sort_index'] % _shared_doc_kwargs)
     def sort_index(self, axis=0, level=None, ascending=True, inplace=False,
-                   sort_remaining=True):
+                   kind='quicksort', na_position='last', sort_remaining=True):
 
+        # TODO: this can be combined with DataFrame.sort_index impl as
+        # almost identical
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         axis = self._get_axis_number(axis)
         index = self.index
-        if level is not None:
+
+        if level:
             new_index, indexer = index.sortlevel(level, ascending=ascending,
                                                  sort_remaining=sort_remaining)
         elif isinstance(index, MultiIndex):
-            from pandas.core.groupby import _lexsort_indexer
-            indexer = _lexsort_indexer(index.labels, orders=ascending)
-            indexer = com._ensure_platform_int(indexer)
-            new_index = index.take(indexer)
+            from pandas.core.sorting import lexsort_indexer
+            labels = index._sort_levels_monotonic()
+            indexer = lexsort_indexer(labels._get_labels_for_sorting(),
+                                      orders=ascending,
+                                      na_position=na_position)
         else:
-            new_index, indexer = index.sort_values(return_indexer=True,
-                                                   ascending=ascending)
+            from pandas.core.sorting import nargsort
+
+            # Check monotonic-ness before sort an index
+            # GH11080
+            if ((ascending and index.is_monotonic_increasing) or
+                    (not ascending and index.is_monotonic_decreasing)):
+                if inplace:
+                    return
+                else:
+                    return self.copy()
+
+            indexer = nargsort(index, kind=kind, ascending=ascending,
+                               na_position=na_position)
+
+        indexer = _ensure_platform_int(indexer)
+        new_index = index.take(indexer)
+        new_index = new_index._sort_levels_monotonic()
 
         new_values = self._values.take(indexer)
         result = self._constructor(new_values, index=new_index)
@@ -1740,77 +1783,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             self._update_inplace(result)
         else:
             return result.__finalize__(self)
-
-    def sort(self, axis=0, ascending=True, kind='quicksort',
-             na_position='last', inplace=True):
-        """
-        DEPRECATED: use :meth:`Series.sort_values(inplace=True)` for INPLACE
-        sorting
-
-        Sort values and index labels by value. This is an inplace sort by
-        default.  Series.order is the equivalent but returns a new Series.
-
-        Parameters
-        ----------
-        axis : int (can only be zero)
-        ascending : boolean, default True
-            Sort ascending. Passing False sorts descending
-        kind : {'mergesort', 'quicksort', 'heapsort'}, default 'quicksort'
-            Choice of sorting algorithm. See np.sort for more
-            information. 'mergesort' is the only stable algorithm
-        na_position : {'first', 'last'} (optional, default='last')
-            'first' puts NaNs at the beginning
-            'last' puts NaNs at the end
-        inplace : boolean, default True
-            Do operation in place.
-
-        See Also
-        --------
-        Series.sort_values
-        """
-        warnings.warn("sort is deprecated, use sort_values(inplace=True) for "
-                      "INPLACE sorting", FutureWarning, stacklevel=2)
-
-        return self.sort_values(ascending=ascending, kind=kind,
-                                na_position=na_position, inplace=inplace)
-
-    def order(self, na_last=None, ascending=True, kind='quicksort',
-              na_position='last', inplace=False):
-        """
-        DEPRECATED: use :meth:`Series.sort_values`
-
-        Sorts Series object, by value, maintaining index-value link.
-        This will return a new Series by default. Series.sort is the equivalent
-        but as an inplace method.
-
-        Parameters
-        ----------
-        na_last : boolean (optional, default=True)--DEPRECATED; use na_position
-            Put NaN's at beginning or end
-        ascending : boolean, default True
-            Sort ascending. Passing False sorts descending
-        kind : {'mergesort', 'quicksort', 'heapsort'}, default 'quicksort'
-            Choice of sorting algorithm. See np.sort for more
-            information. 'mergesort' is the only stable algorithm
-        na_position : {'first', 'last'} (optional, default='last')
-            'first' puts NaNs at the beginning
-            'last' puts NaNs at the end
-        inplace : boolean, default False
-            Do operation in place.
-
-        Returns
-        -------
-        y : Series
-
-        See Also
-        --------
-        Series.sort_values
-        """
-        warnings.warn("order is deprecated, use sort_values(...)",
-                      FutureWarning, stacklevel=2)
-
-        return self.sort_values(ascending=ascending, kind=kind,
-                                na_position=na_position, inplace=inplace)
 
     def argsort(self, axis=0, kind='quicksort', order=None):
         """
@@ -1848,8 +1820,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
                 np.argsort(values, kind=kind), index=self.index,
                 dtype='int64').__finalize__(self)
 
-    @deprecate_kwarg('take_last', 'keep', mapping={True: 'last',
-                                                   False: 'first'})
     def nlargest(self, n=5, keep='first'):
         """Return the largest `n` elements.
 
@@ -1861,7 +1831,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             Where there are duplicate values:
             - ``first`` : take the first occurrence.
             - ``last`` : take the last occurrence.
-        take_last : deprecated
 
         Returns
         -------
@@ -1881,13 +1850,22 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         --------
         >>> import pandas as pd
         >>> import numpy as np
-        >>> s = pd.Series(np.random.randn(1e6))
+        >>> s = pd.Series(np.random.randn(10**6))
         >>> s.nlargest(10)  # only sorts up to the N requested
+        219921    4.644710
+        82124     4.608745
+        421689    4.564644
+        425277    4.447014
+        718691    4.414137
+        43154     4.403520
+        283187    4.313922
+        595519    4.273635
+        503969    4.250236
+        121637    4.240952
+        dtype: float64
         """
-        return algorithms.select_n(self, n=n, keep=keep, method='nlargest')
+        return algorithms.SelectNSeries(self, n=n, keep=keep).nlargest()
 
-    @deprecate_kwarg('take_last', 'keep', mapping={True: 'last',
-                                                   False: 'first'})
     def nsmallest(self, n=5, keep='first'):
         """Return the smallest `n` elements.
 
@@ -1899,7 +1877,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             Where there are duplicate values:
             - ``first`` : take the first occurrence.
             - ``last`` : take the last occurrence.
-        take_last : deprecated
 
         Returns
         -------
@@ -1919,13 +1896,26 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         --------
         >>> import pandas as pd
         >>> import numpy as np
-        >>> s = pd.Series(np.random.randn(1e6))
+        >>> s = pd.Series(np.random.randn(10**6))
         >>> s.nsmallest(10)  # only sorts up to the N requested
+        288532   -4.954580
+        732345   -4.835960
+        64803    -4.812550
+        446457   -4.609998
+        501225   -4.483945
+        669476   -4.472935
+        973615   -4.401699
+        621279   -4.355126
+        773916   -4.347355
+        359919   -4.331927
+        dtype: float64
         """
-        return algorithms.select_n(self, n=n, keep=keep, method='nsmallest')
+        return algorithms.SelectNSeries(self, n=n, keep=keep).nsmallest()
 
     def sortlevel(self, level=0, ascending=True, sort_remaining=True):
         """
+        DEPRECATED: use :meth:`Series.sort_index`
+
         Sort Series with MultiIndex by chosen level. Data will be
         lexicographically sorted by the chosen level followed by the other
         levels (in order)
@@ -1944,10 +1934,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         Series.sort_index(level=...)
 
         """
+        warnings.warn("sortlevel is deprecated, use sort_index(level=...)",
+                      FutureWarning, stacklevel=2)
         return self.sort_index(level=level, ascending=ascending,
                                sort_remaining=sort_remaining)
 
-    def swaplevel(self, i, j, copy=True):
+    def swaplevel(self, i=-2, j=-1, copy=True):
         """
         Swap levels i and j in a MultiIndex
 
@@ -1959,6 +1951,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         Returns
         -------
         swapped : Series
+
+        .. versionchanged:: 0.18.1
+
+           The indexes ``i`` and ``j`` are now optional, and default to
+           the two innermost levels of the index.
+
         """
         new_index = self.index.swaplevel(i, j)
         return self._constructor(self._values, index=new_index,
@@ -1971,9 +1969,9 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         Parameters
         ----------
-        order: list of int representing new level order.
+        order : list of int representing new level order.
                (reference level by number or key)
-        axis: where to reorder levels
+        axis : where to reorder levels
 
         Returns
         -------
@@ -2002,27 +2000,30 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         Examples
         --------
+        >>> s = pd.Series([1, 2, 3, 4],
+        ...     index=pd.MultiIndex.from_product([['one', 'two'], ['a', 'b']]))
         >>> s
-        one  a   1.
-        one  b   2.
-        two  a   3.
-        two  b   4.
+        one  a    1
+             b    2
+        two  a    3
+             b    4
+        dtype: int64
 
         >>> s.unstack(level=-1)
-             a   b
-        one  1.  2.
-        two  3.  4.
+             a  b
+        one  1  2
+        two  3  4
 
         >>> s.unstack(level=0)
            one  two
-        a  1.   2.
-        b  3.   4.
+        a    1    3
+        b    2    4
 
         Returns
         -------
         unstacked : DataFrame
         """
-        from pandas.core.reshape import unstack
+        from pandas.core.reshape.reshape import unstack
         return unstack(self, level, fill_value)
 
     # ----------------------------------------------------------------------
@@ -2037,55 +2038,169 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         ----------
         arg : function, dict, or Series
         na_action : {None, 'ignore'}
-            If 'ignore', propagate NA values
+            If 'ignore', propagate NA values, without passing them to the
+            mapping function
+
+        Returns
+        -------
+        y : Series
+            same index as caller
 
         Examples
         --------
-        >>> x
-        one   1
-        two   2
-        three 3
 
+        Map inputs to outputs (both of type `Series`)
+
+        >>> x = pd.Series([1,2,3], index=['one', 'two', 'three'])
+        >>> x
+        one      1
+        two      2
+        three    3
+        dtype: int64
+
+        >>> y = pd.Series(['foo', 'bar', 'baz'], index=[1,2,3])
         >>> y
-        1  foo
-        2  bar
-        3  baz
+        1    foo
+        2    bar
+        3    baz
 
         >>> x.map(y)
         one   foo
         two   bar
         three baz
 
-        Returns
-        -------
-        y : Series
-            same index as caller
+        If `arg` is a dictionary, return a new Series with values converted
+        according to the dictionary's mapping:
+
+        >>> z = {1: 'A', 2: 'B', 3: 'C'}
+
+        >>> x.map(z)
+        one   A
+        two   B
+        three C
+
+        Use na_action to control whether NA values are affected by the mapping
+        function.
+
+        >>> s = pd.Series([1, 2, 3, np.nan])
+
+        >>> s2 = s.map('this is a string {}'.format, na_action=None)
+        0    this is a string 1.0
+        1    this is a string 2.0
+        2    this is a string 3.0
+        3    this is a string nan
+        dtype: object
+
+        >>> s3 = s.map('this is a string {}'.format, na_action='ignore')
+        0    this is a string 1.0
+        1    this is a string 2.0
+        2    this is a string 3.0
+        3                     NaN
+        dtype: object
+
+        See Also
+        --------
+        Series.apply: For applying more complex functions on a Series
+        DataFrame.apply: Apply a function row-/column-wise
+        DataFrame.applymap: Apply a function elementwise on a whole DataFrame
+
+        Notes
+        -----
+        When `arg` is a dictionary, values in Series that are not in the
+        dictionary (as keys) are converted to ``NaN``. However, if the
+        dictionary is a ``dict`` subclass that defines ``__missing__`` (i.e.
+        provides a method for default values), then this default is used
+        rather than ``NaN``:
+
+        >>> from collections import Counter
+        >>> counter = Counter()
+        >>> counter['bar'] += 1
+        >>> y.map(counter)
+        1    0
+        2    1
+        3    0
+        dtype: int64
         """
-        values = self._values
-        if needs_i8_conversion(values.dtype):
-            boxer = i8_boxer(values)
-            values = lib.map_infer(values, boxer)
 
-        if na_action == 'ignore':
-            mask = isnull(values)
-
-            def map_f(values, f):
-                return lib.map_infer_mask(values, f, mask.view(np.uint8))
+        if is_extension_type(self.dtype):
+            values = self._values
+            if na_action is not None:
+                raise NotImplementedError
+            map_f = lambda values, f: values.map(f)
         else:
-            map_f = lib.map_infer
+            values = self.asobject
 
-        if isinstance(arg, (dict, Series)):
-            if isinstance(arg, dict):
+            if na_action == 'ignore':
+                def map_f(values, f):
+                    return lib.map_infer_mask(values, f,
+                                              isnull(values).view(np.uint8))
+            else:
+                map_f = lib.map_infer
+
+        if isinstance(arg, dict):
+            if hasattr(arg, '__missing__'):
+                # If a dictionary subclass defines a default value method,
+                # convert arg to a lookup function (GH #15999).
+                dict_with_default = arg
+                arg = lambda x: dict_with_default[x]
+            else:
+                # Dictionary does not have a default. Thus it's safe to
+                # convert to an indexed series for efficiency.
                 arg = self._constructor(arg, index=arg.keys())
 
+        if isinstance(arg, Series):
+            # arg is a Series
             indexer = arg.index.get_indexer(values)
-            new_values = com.take_1d(arg._values, indexer)
-            return self._constructor(new_values,
-                                     index=self.index).__finalize__(self)
+            new_values = algorithms.take_1d(arg._values, indexer)
         else:
-            mapped = map_f(values, arg)
-            return self._constructor(mapped,
-                                     index=self.index).__finalize__(self)
+            # arg is a function
+            new_values = map_f(values, arg)
+
+        return self._constructor(new_values,
+                                 index=self.index).__finalize__(self)
+
+    def _gotitem(self, key, ndim, subset=None):
+        """
+        sub-classes to define
+        return a sliced object
+
+        Parameters
+        ----------
+        key : string / list of selections
+        ndim : 1,2
+            requested ndim of result
+        subset : object, default None
+            subset to act on
+        """
+        return self
+
+    @Appender(generic._shared_docs['aggregate'] % _shared_doc_kwargs)
+    def aggregate(self, func, axis=0, *args, **kwargs):
+        axis = self._get_axis_number(axis)
+        result, how = self._aggregate(func, *args, **kwargs)
+        if result is None:
+
+            # we can be called from an inner function which
+            # passes this meta-data
+            kwargs.pop('_axis', None)
+            kwargs.pop('_level', None)
+
+            # try a regular apply, this evaluates lambdas
+            # row-by-row; however if the lambda is expected a Series
+            # expression, e.g.: lambda x: x-x.quantile(0.25)
+            # this will fail, so we can try a vectorized evaluation
+
+            # we cannot FIRST try the vectorized evaluation, becuase
+            # then .agg and .apply would have different semantics if the
+            # operation is actually defined on the Series, e.g. str
+            try:
+                result = self.apply(func, *args, **kwargs)
+            except (ValueError, AttributeError, TypeError):
+                result = func(self, *args, **kwargs)
+
+        return result
+
+    agg = aggregate
 
     def apply(self, func, convert_dtype=True, args=(), **kwds):
         """
@@ -2110,6 +2225,8 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         See also
         --------
         Series.map: For element-wise operations
+        Series.agg: only perform aggregating type operations
+        Series.transform: only perform transformating type operations
 
         Examples
         --------
@@ -2120,6 +2237,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         >>> import numpy as np
         >>> series = pd.Series([20, 21, 12], index=['London',
         ... 'New York','Helsinki'])
+        >>> series
         London      20
         New York    21
         Helsinki    12
@@ -2186,20 +2304,31 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             return self._constructor(dtype=self.dtype,
                                      index=self.index).__finalize__(self)
 
+        # dispatch to agg
+        if isinstance(func, (list, dict)):
+            return self.aggregate(func, *args, **kwds)
+
+        # if we are a string, try to dispatch
+        if isinstance(func, compat.string_types):
+            return self._try_aggregate_string_function(func, *args, **kwds)
+
+        # handle ufuncs and lambdas
         if kwds or args and not isinstance(func, np.ufunc):
             f = lambda x: func(x, *args, **kwds)
         else:
             f = func
 
-        if isinstance(f, np.ufunc):
-            return f(self)
+        with np.errstate(all='ignore'):
+            if isinstance(f, np.ufunc):
+                return f(self)
 
-        values = _values_from_object(self)
-        if needs_i8_conversion(values.dtype):
-            boxer = i8_boxer(values)
-            values = lib.map_infer(values, boxer)
+            # row-wise access
+            if is_extension_type(self.dtype):
+                mapped = self._values.map(f)
+            else:
+                values = self.asobject
+                mapped = lib.map_infer(values, f, convert=convert_dtype)
 
-        mapped = lib.map_infer(values, f, convert=convert_dtype)
         if len(mapped) and isinstance(mapped[0], Series):
             from pandas.core.frame import DataFrame
             return DataFrame(mapped.tolist(), index=self.index)
@@ -2223,50 +2352,12 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             if numeric_only:
                 raise NotImplementedError('Series.{0} does not implement '
                                           'numeric_only.'.format(name))
-            return op(delegate, skipna=skipna, **kwds)
+            with np.errstate(all='ignore'):
+                return op(delegate, skipna=skipna, **kwds)
 
         return delegate._reduce(op=op, name=name, axis=axis, skipna=skipna,
                                 numeric_only=numeric_only,
                                 filter_type=filter_type, **kwds)
-
-    def _maybe_box(self, func, dropna=False):
-        """
-        evaluate a function with possible input/output conversion if we are i8
-
-        Parameters
-        ----------
-        dropna : bool, default False
-           whether to drop values if necessary
-
-        """
-        if dropna:
-            values = self.dropna()._values
-        else:
-            values = self._values
-
-        if needs_i8_conversion(self):
-            boxer = i8_boxer(self)
-
-            if len(values) == 0:
-                return boxer(tslib.iNaT)
-
-            values = values.view('i8')
-            result = func(values)
-
-            if com.is_list_like(result):
-                result = result.map(boxer)
-            else:
-                result = boxer(result)
-
-        else:
-
-            # let the function return nan if appropriate
-            if dropna:
-                if len(values) == 0:
-                    return np.nan
-            result = func(values)
-
-        return result
 
     def _reindex_indexer(self, new_index, indexer, copy):
         if indexer is None:
@@ -2275,7 +2366,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             return self
 
         # be subclass-friendly
-        new_values = com.take_1d(self.get_values(), indexer)
+        new_values = algorithms.take_1d(self.get_values(), indexer)
         return self._constructor(new_values, index=new_index)
 
     def _needs_reindex_multi(self, axes, method, level):
@@ -2296,8 +2387,11 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     @Appender(generic._shared_docs['rename'] % _shared_doc_kwargs)
     def rename(self, index=None, **kwargs):
-        non_mapping = lib.isscalar(index) or (com.is_list_like(index) and
-                                              not com.is_dict_like(index))
+        kwargs['inplace'] = validate_bool_kwarg(kwargs.get('inplace', False),
+                                                'inplace')
+
+        non_mapping = is_scalar(index) or (is_list_like(index) and
+                                           not is_dict_like(index))
         if non_mapping:
             return self._set_name(index, inplace=kwargs.get('inplace'))
         return super(Series, self).rename(index=index, **kwargs)
@@ -2353,7 +2447,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
             v += self.index.memory_usage(deep=deep)
         return v
 
-    def take(self, indices, axis=0, convert=True, is_copy=False):
+    def take(self, indices, axis=0, convert=True, is_copy=False, **kwargs):
         """
         return Series corresponding to requested indices
 
@@ -2370,15 +2464,18 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         --------
         numpy.ndarray.take
         """
+        if kwargs:
+            nv.validate_take(tuple(), kwargs)
+
         # check/convert indicies here
         if convert:
             indices = maybe_convert_indices(indices, len(self._get_axis(axis)))
 
-        indices = com._ensure_platform_int(indices)
+        indices = _ensure_platform_int(indices)
         new_index = self.index.take(indices)
         new_values = self._values.take(indices)
-        return self._constructor(new_values,
-                                 index=new_index).__finalize__(self)
+        return (self._constructor(new_values, index=new_index, fastpath=True)
+                    .__finalize__(self))
 
     def isin(self, values):
         """
@@ -2388,10 +2485,14 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         Parameters
         ----------
-        values : list-like
+        values : set or list-like
             The sequence of values to test. Passing in a single string will
             raise a ``TypeError``. Instead, turn a single string into a
             ``list`` of one element.
+
+            .. versionadded:: 0.18.1
+
+            Support for values as a set
 
         Returns
         -------
@@ -2517,16 +2618,17 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
         return result
 
-    def to_csv(self, path, index=True, sep=",", na_rep='', float_format=None,
-               header=False, index_label=None, mode='w', nanRep=None,
-               encoding=None, date_format=None, decimal='.'):
+    def to_csv(self, path=None, index=True, sep=",", na_rep='',
+               float_format=None, header=False, index_label=None,
+               mode='w', encoding=None, date_format=None, decimal='.'):
         """
         Write Series to a comma-separated values (csv) file
 
         Parameters
         ----------
-        path : string file path or file handle / StringIO. If None is provided
-            the result is returned as a string.
+        path : string or file handle, default None
+            File path or object, if None is provided the result is returned as
+            a string.
         na_rep : string, default ''
             Missing data representation
         float_format : string, default None
@@ -2556,11 +2658,24 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         # result is only a string if no path provided, otherwise None
         result = df.to_csv(path, index=index, sep=sep, na_rep=na_rep,
                            float_format=float_format, header=header,
-                           index_label=index_label, mode=mode, nanRep=nanRep,
+                           index_label=index_label, mode=mode,
                            encoding=encoding, date_format=date_format,
                            decimal=decimal)
         if path is None:
             return result
+
+    @Appender(generic._shared_docs['to_excel'] % _shared_doc_kwargs)
+    def to_excel(self, excel_writer, sheet_name='Sheet1', na_rep='',
+                 float_format=None, columns=None, header=True, index=True,
+                 index_label=None, startrow=0, startcol=0, engine=None,
+                 merge_cells=True, encoding=None, inf_rep='inf', verbose=True):
+        df = self.to_frame()
+        df.to_excel(excel_writer=excel_writer, sheet_name=sheet_name,
+                    na_rep=na_rep, float_format=float_format, columns=columns,
+                    header=header, index=index, index_label=index_label,
+                    startrow=startrow, startcol=startcol, engine=engine,
+                    merge_cells=merge_cells, encoding=encoding,
+                    inf_rep=inf_rep, verbose=verbose)
 
     def dropna(self, axis=0, inplace=False, **kwargs):
         """
@@ -2572,6 +2687,7 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
         inplace : boolean, default False
             Do operation in place.
         """
+        inplace = validate_bool_kwarg(inplace, 'inplace')
         kwargs.pop('how', None)
         if kwargs:
             raise TypeError('dropna() got an unexpected keyword '
@@ -2625,52 +2741,6 @@ class Series(base.IndexOpsMixin, strings.StringAccessorMixin,
 
     # ----------------------------------------------------------------------
     # Time series-oriented methods
-
-    def asof(self, where):
-        """
-        Return last good (non-NaN) value in Series if value is NaN for
-        requested date.
-
-        If there is no good value, NaN is returned.
-
-        Parameters
-        ----------
-        where : date or array of dates
-
-        Notes
-        -----
-        Dates are assumed to be sorted
-
-        Returns
-        -------
-        value or NaN
-        """
-        if isinstance(where, compat.string_types):
-            where = datetools.to_datetime(where)
-
-        values = self._values
-
-        if not hasattr(where, '__iter__'):
-            start = self.index[0]
-            if isinstance(self.index, PeriodIndex):
-                where = Period(where, freq=self.index.freq).ordinal
-                start = start.ordinal
-
-            if where < start:
-                return np.nan
-            loc = self.index.searchsorted(where, side='right')
-            if loc > 0:
-                loc -= 1
-            while isnull(values[loc]) and loc > 0:
-                loc -= 1
-            return values[loc]
-
-        if not isinstance(where, Index):
-            where = Index(where)
-
-        locs = self.index.asof_locs(where, notnull(values))
-        new_values = com.take_1d(values, locs)
-        return self._constructor(new_values, index=where).__finalize__(self)
 
     def to_timestamp(self, freq=None, how='start', copy=True):
         """
@@ -2787,8 +2857,6 @@ def _sanitize_index(data, index, copy=False):
         data = data.asobject
     elif isinstance(data, DatetimeIndex):
         data = data._to_embed(keep_tz=True)
-        if copy:
-            data = data.copy()
     elif isinstance(data, np.ndarray):
 
         # coerce datetimelike types
@@ -2805,12 +2873,12 @@ def _sanitize_array(data, index, dtype=None, copy=False,
     """
 
     if dtype is not None:
-        dtype = _coerce_to_dtype(dtype)
+        dtype = pandas_dtype(dtype)
 
     if isinstance(data, ma.MaskedArray):
         mask = ma.getmaskarray(data)
         if mask.any():
-            data, fill_value = _maybe_upcast(data, copy=True)
+            data, fill_value = maybe_upcast(data, copy=True)
             data[mask] = fill_value
         else:
             data = data.copy()
@@ -2819,12 +2887,12 @@ def _sanitize_array(data, index, dtype=None, copy=False,
 
         # perf shortcut as this is the most common case
         if take_fast_path:
-            if _possibly_castable(arr) and not copy and dtype is None:
+            if maybe_castable(arr) and not copy and dtype is None:
                 return arr
 
         try:
-            subarr = _possibly_cast_to_datetime(arr, dtype)
-            if not is_internal_type(subarr):
+            subarr = maybe_cast_to_datetime(arr, dtype)
+            if not is_extension_type(subarr):
                 subarr = np.array(subarr, dtype=dtype, copy=copy)
         except (ValueError, TypeError):
             if is_categorical_dtype(dtype):
@@ -2842,7 +2910,7 @@ def _sanitize_array(data, index, dtype=None, copy=False,
             subarr = np.array(data, copy=False)
 
             # possibility of nan -> garbage
-            if com.is_float_dtype(data.dtype) and com.is_integer_dtype(dtype):
+            if is_float_dtype(data.dtype) and is_integer_dtype(dtype):
                 if not isnull(data).any():
                     subarr = _try_cast(data, True)
                 elif copy:
@@ -2868,7 +2936,7 @@ def _sanitize_array(data, index, dtype=None, copy=False,
             subarr = data.copy()
         return subarr
 
-    elif isinstance(data, list) and len(data) > 0:
+    elif isinstance(data, (list, tuple)) and len(data) > 0:
         if dtype is not None:
             try:
                 subarr = _try_cast(data, False)
@@ -2879,9 +2947,9 @@ def _sanitize_array(data, index, dtype=None, copy=False,
                 subarr = lib.maybe_convert_objects(subarr)
 
         else:
-            subarr = _possibly_convert_platform(data)
+            subarr = maybe_convert_platform(data)
 
-        subarr = _possibly_cast_to_datetime(subarr, dtype)
+        subarr = maybe_cast_to_datetime(subarr, dtype)
 
     else:
         subarr = _try_cast(data, False)
@@ -2901,8 +2969,8 @@ def _sanitize_array(data, index, dtype=None, copy=False,
 
         return subarr
 
-    # scalar like
-    if subarr.ndim == 0:
+    # scalar like, GH
+    if getattr(subarr, 'ndim', 0) == 0:
         if isinstance(data, list):  # pragma: no cover
             subarr = np.array(data, dtype=object)
         elif index is not None:
@@ -2910,10 +2978,10 @@ def _sanitize_array(data, index, dtype=None, copy=False,
 
             # figure out the dtype from the value (upcast if necessary)
             if dtype is None:
-                dtype, value = _infer_dtype_from_scalar(value)
+                dtype, value = infer_dtype_from_scalar(value)
             else:
                 # need to possibly convert the value here
-                value = _possibly_cast_to_datetime(value, dtype)
+                value = maybe_cast_to_datetime(value, dtype)
 
             subarr = create_from_value(value, index, dtype)
 
@@ -2943,19 +3011,10 @@ def _sanitize_array(data, index, dtype=None, copy=False,
     return subarr
 
 
-# backwards compatiblity
-class TimeSeries(Series):
-    def __init__(self, *args, **kwargs):
-        # deprecation TimeSeries, #10890
-        warnings.warn("TimeSeries is deprecated. Please use Series",
-                      FutureWarning, stacklevel=2)
-
-        super(TimeSeries, self).__init__(*args, **kwargs)
-
 # ----------------------------------------------------------------------
 # Add plotting methods to Series
 
-import pandas.tools.plotting as _gfx  # noqa
+import pandas.plotting._core as _gfx  # noqa
 
 Series.plot = base.AccessorProperty(_gfx.SeriesPlotMethods,
                                     _gfx.SeriesPlotMethods)

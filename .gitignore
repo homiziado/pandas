@@ -18,6 +18,8 @@
 .vagrant
 .noseids
 .ipynb_checkpoints
+.tags
+.cache/
 
 # Compiled source #
 ###################
@@ -26,6 +28,7 @@
 *.class
 *.dll
 *.exe
+*.pxi
 *.o
 *.py[ocd]
 *.so
@@ -54,6 +57,8 @@ dist
 **/wheelhouse/*
 # coverage
 .coverage
+coverage.xml
+coverage_html_report
 
 # OS generated files #
 ######################
@@ -83,7 +88,10 @@ scikits
 
 # Performance Testing #
 #######################
-asv_bench/
+asv_bench/env/
+asv_bench/html/
+asv_bench/results/
+asv_bench/pandas/
 
 # Documentation generated files #
 #################################
@@ -95,3 +103,5 @@ doc/source/index.rst
 doc/build/html/index.html
 # Windows specific leftover:
 doc/tmp.sv
+doc/source/styled.xlsx
+doc/source/templates/

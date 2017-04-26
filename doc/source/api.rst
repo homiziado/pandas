@@ -5,6 +5,22 @@
 API Reference
 *************
 
+This page gives an overview of all public pandas objects, functions and
+methods. In general, all classes and functions exposed in the top-level
+``pandas.*`` namespace are regarded as public.
+
+Further some of the subpackages are public, including ``pandas.errors``,
+``pandas.plotting``, and ``pandas.testing``. Certain functions in the the
+``pandas.io`` and ``pandas.tseries`` submodules are public as well (those
+mentioned in the documentation). Further, the ``pandas.api.types`` subpackage
+holds some public functions related to data types in pandas.
+
+
+.. warning::
+
+    The ``pandas.core``, ``pandas.compat``, and ``pandas.util`` top-level modules are considered to be PRIVATE. Stability of functionality in those modules in not guaranteed.
+
+
 .. _api.functions:
 
 Input/Output
@@ -27,6 +43,7 @@ Flat File
    read_table
    read_csv
    read_fwf
+   read_msgpack
 
 Clipboard
 ~~~~~~~~~
@@ -59,6 +76,7 @@ JSON
    :toctree: generated/
 
    json_normalize
+   build_table_schema
 
 .. currentmodule:: pandas
 
@@ -81,6 +99,14 @@ HDFStore: PyTables (HDF5)
    HDFStore.append
    HDFStore.get
    HDFStore.select
+
+Feather
+~~~~~~~
+
+.. autosummary::
+   :toctree: generated/
+
+   read_feather
 
 SAS
 ~~~
@@ -108,7 +134,6 @@ Google BigQuery
    :toctree: generated/
 
    read_gbq
-   to_gbq
 
 
 .. currentmodule:: pandas
@@ -151,9 +176,13 @@ Data manipulations
    cut
    qcut
    merge
+   merge_ordered
+   merge_asof
    concat
    get_dummies
    factorize
+   unique
+   wide_to_long
 
 Top-level missing data
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -256,13 +285,12 @@ Indexing, iteration
    Series.get
    Series.at
    Series.iat
-   Series.ix
    Series.loc
    Series.iloc
    Series.__iter__
    Series.iteritems
 
-For more information on ``.at``, ``.iat``, ``.ix``, ``.loc``, and
+For more information on ``.at``, ``.iat``, ``.loc``, and
 ``.iloc``,  see the :ref:`indexing documentation <indexing>`.
 
 Binary operator functions
@@ -302,6 +330,8 @@ Function application, GroupBy & Window
    :toctree: generated/
 
    Series.apply
+   Series.aggregate
+   Series.transform
    Series.map
    Series.groupby
    Series.rolling
@@ -354,6 +384,9 @@ Computations / Descriptive Stats
    Series.unique
    Series.nunique
    Series.is_unique
+   Series.is_monotonic
+   Series.is_monotonic_increasing
+   Series.is_monotonic_decreasing
    Series.value_counts
 
 Reindexing / Selection / Label manipulation
@@ -375,6 +408,7 @@ Reindexing / Selection / Label manipulation
    Series.reindex
    Series.reindex_like
    Series.rename
+   Series.rename_axis
    Series.reset_index
    Series.sample
    Series.select
@@ -402,7 +436,6 @@ Reshaping, sorting
    Series.reorder_levels
    Series.sort_values
    Series.sort_index
-   Series.sortlevel
    Series.swaplevel
    Series.unstack
    Series.searchsorted
@@ -457,6 +490,7 @@ These can be accessed like ``Series.dt.<property>``.
    Series.dt.weekofyear
    Series.dt.dayofweek
    Series.dt.weekday
+   Series.dt.weekday_name
    Series.dt.dayofyear
    Series.dt.quarter
    Series.dt.is_month_start
@@ -465,6 +499,7 @@ These can be accessed like ``Series.dt.<property>``.
    Series.dt.is_quarter_end
    Series.dt.is_year_start
    Series.dt.is_year_end
+   Series.dt.is_leap_year
    Series.dt.daysinmonth
    Series.dt.days_in_month
    Series.dt.tz
@@ -636,7 +671,7 @@ adding ordering information or special categories is need at creation time of th
    Categorical.from_codes
 
 ``np.asarray(categorical)`` works by implementing the array interface. Be aware, that this converts
-the Categorical back to a numpy array, so levels and order information is not preserved!
+the Categorical back to a numpy array, so categories and order information is not preserved!
 
 .. autosummary::
    :toctree: generated/
@@ -683,6 +718,7 @@ Serialization / IO / Conversion
    Series.to_pickle
    Series.to_csv
    Series.to_dict
+   Series.to_excel
    Series.to_frame
    Series.to_xarray
    Series.to_hdf
@@ -694,8 +730,8 @@ Serialization / IO / Conversion
    Series.to_string
    Series.to_clipboard
 
-Sparse methods
-~~~~~~~~~~~~~~
+Sparse
+~~~~~~
 .. autosummary::
    :toctree: generated/
 
@@ -756,7 +792,6 @@ Indexing, iteration
    DataFrame.head
    DataFrame.at
    DataFrame.iat
-   DataFrame.ix
    DataFrame.loc
    DataFrame.iloc
    DataFrame.insert
@@ -773,7 +808,7 @@ Indexing, iteration
    DataFrame.mask
    DataFrame.query
 
-For more information on ``.at``, ``.iat``, ``.ix``, ``.loc``, and
+For more information on ``.at``, ``.iat``, ``.loc``, and
 ``.iloc``,  see the :ref:`indexing documentation <indexing>`.
 
 
@@ -814,6 +849,8 @@ Function application, GroupBy & Window
 
    DataFrame.apply
    DataFrame.applymap
+   DataFrame.aggregate
+   DataFrame.transform
    DataFrame.groupby
    DataFrame.rolling
    DataFrame.expanding
@@ -883,6 +920,7 @@ Reindexing / Selection / Label manipulation
    DataFrame.reindex_axis
    DataFrame.reindex_like
    DataFrame.rename
+   DataFrame.rename_axis
    DataFrame.reset_index
    DataFrame.sample
    DataFrame.select
@@ -911,12 +949,12 @@ Reshaping, sorting, transposing
    DataFrame.reorder_levels
    DataFrame.sort_values
    DataFrame.sort_index
-   DataFrame.sortlevel
    DataFrame.nlargest
    DataFrame.nsmallest
    DataFrame.swaplevel
    DataFrame.stack
    DataFrame.unstack
+   DataFrame.melt
    DataFrame.T
    DataFrame.to_panel
    DataFrame.to_xarray
@@ -939,6 +977,7 @@ Time series-related
    :toctree: generated/
 
    DataFrame.asfreq
+   DataFrame.asof
    DataFrame.shift
    DataFrame.first_valid_index
    DataFrame.last_valid_index
@@ -1002,6 +1041,7 @@ Serialization / IO / Conversion
    DataFrame.to_excel
    DataFrame.to_json
    DataFrame.to_html
+   DataFrame.to_feather
    DataFrame.to_latex
    DataFrame.to_stata
    DataFrame.to_msgpack
@@ -1011,6 +1051,13 @@ Serialization / IO / Conversion
    DataFrame.to_dense
    DataFrame.to_string
    DataFrame.to_clipboard
+
+Sparse
+~~~~~~
+.. autosummary::
+   :toctree: generated/
+
+   SparseDataFrame.to_coo
 
 .. _api.panel:
 
@@ -1070,7 +1117,6 @@ Indexing, iteration, slicing
 
    Panel.at
    Panel.iat
-   Panel.ix
    Panel.loc
    Panel.iloc
    Panel.__iter__
@@ -1080,7 +1126,7 @@ Indexing, iteration, slicing
    Panel.major_xs
    Panel.minor_xs
 
-For more information on ``.at``, ``.iat``, ``.ix``, ``.loc``, and
+For more information on ``.at``, ``.iat``, ``.loc``, and
 ``.iloc``,  see the :ref:`indexing documentation <indexing>`.
 
 Binary operator functions
@@ -1220,57 +1266,6 @@ Serialization / IO / Conversion
    Panel.to_xarray
    Panel.to_clipboard
 
-.. _api.panel4d:
-
-Panel4D
--------
-
-Constructor
-~~~~~~~~~~~
-.. autosummary::
-   :toctree: generated/
-
-   Panel4D
-
-Serialization / IO / Conversion
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-.. autosummary::
-   :toctree: generated/
-
-   Panel4D.to_xarray
-
-Attributes and underlying data
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-**Axes**
-
-  * **labels**: axis 1; each label corresponds to a Panel contained inside
-  * **items**: axis 2; each item corresponds to a DataFrame contained inside
-  * **major_axis**: axis 3; the index (rows) of each of the DataFrames
-  * **minor_axis**: axis 4; the columns of each of the DataFrames
-
-.. autosummary::
-   :toctree: generated/
-
-   Panel4D.values
-   Panel4D.axes
-   Panel4D.ndim
-   Panel4D.size
-   Panel4D.shape
-   Panel4D.dtypes
-   Panel4D.ftypes
-   Panel4D.get_dtype_counts
-   Panel4D.get_ftype_counts
-
-Conversion
-~~~~~~~~~~
-.. autosummary::
-   :toctree: generated/
-
-   Panel4D.astype
-   Panel4D.copy
-   Panel4D.isnull
-   Panel4D.notnull
-
 .. _api.index:
 
 Index
@@ -1304,6 +1299,7 @@ Attributes
    Index.nbytes
    Index.ndim
    Index.size
+   Index.empty
    Index.strides
    Index.itemsize
    Index.base
@@ -1332,12 +1328,23 @@ Modifying and Computations
    Index.max
    Index.reindex
    Index.repeat
+   Index.where
    Index.take
    Index.putmask
    Index.set_names
    Index.unique
    Index.nunique
    Index.value_counts
+
+Missing Values
+~~~~~~~~~~~~~~
+.. autosummary::
+   :toctree: generated/
+
+   Index.fillna
+   Index.dropna
+   Index.isnull
+   Index.notnull
 
 Conversion
 ~~~~~~~~~~
@@ -1418,6 +1425,27 @@ Categorical Components
    CategoricalIndex.as_ordered
    CategoricalIndex.as_unordered
 
+.. _api.intervalindex:
+
+IntervalIndex
+-------------
+
+.. autosummary::
+   :toctree: generated/
+
+   IntervalIndex
+
+IntervalIndex Components
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated/
+
+   IntervalIndex.from_arrays
+   IntervalIndex.from_tuples
+   IntervalIndex.from_breaks
+   IntervalIndex.from_intervals
+
 .. _api.multiindex:
 
 MultiIndex
@@ -1427,6 +1455,7 @@ MultiIndex
    :toctree: generated/
 
    MultiIndex
+   IndexSlice
 
 MultiIndex Components
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -1440,10 +1469,12 @@ MultiIndex Components
    MultiIndex.set_levels
    MultiIndex.set_labels
    MultiIndex.to_hierarchical
+   MultiIndex.to_frame
    MultiIndex.is_lexsorted
    MultiIndex.droplevel
    MultiIndex.swaplevel
    MultiIndex.reorder_levels
+   MultiIndex.remove_unused_levels
 
 .. _api.datetimeindex:
 
@@ -1476,6 +1507,7 @@ Time/Date Components
    DatetimeIndex.week
    DatetimeIndex.dayofweek
    DatetimeIndex.weekday
+   DatetimeIndex.weekday_name
    DatetimeIndex.quarter
    DatetimeIndex.tz
    DatetimeIndex.freq
@@ -1486,6 +1518,7 @@ Time/Date Components
    DatetimeIndex.is_quarter_end
    DatetimeIndex.is_year_start
    DatetimeIndex.is_year_end
+   DatetimeIndex.is_leap_year
    DatetimeIndex.inferred_freq
 
 Selecting
@@ -1744,7 +1777,7 @@ The following methods are available only for ``DataFrameGroupBy`` objects.
 
 Resampling
 ----------
-.. currentmodule:: pandas.tseries.resample
+.. currentmodule:: pandas.core.resample
 
 Resampler objects are returned by resample calls: :func:`pandas.DataFrame.resample`, :func:`pandas.Series.resample`.
 
@@ -1779,6 +1812,7 @@ Upsampling
    Resampler.pad
    Resampler.fillna
    Resampler.asfreq
+   Resampler.interpolate
 
 Computations / Descriptive Stats
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1803,7 +1837,7 @@ Computations / Descriptive Stats
 
 Style
 -----
-.. currentmodule:: pandas.core.style
+.. currentmodule:: pandas.io.formats.style
 
 ``Styler`` objects are returned by :attr:`pandas.DataFrame.style`.
 
@@ -1868,3 +1902,40 @@ Working with options
    get_option
    set_option
    option_context
+
+Testing functions
+~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated/
+
+   testing.assert_frame_equal
+   testing.assert_series_equal
+   testing.assert_index_equal
+
+
+Exceptions and warnings
+~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated/
+
+   errors.DtypeWarning
+   errors.EmptyDataError
+   errors.OutOfBoundsDatetime
+   errors.ParserError
+   errors.ParserWarning
+   errors.PerformanceWarning
+   errors.UnsortedIndexError
+   errors.UnsupportedFunctionCall
+
+
+Data types related functionality
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autosummary::
+   :toctree: generated/
+
+   api.types.union_categoricals
+   api.types.infer_dtype
+   api.types.pandas_dtype
