@@ -67,7 +67,7 @@ class TestHashing(tm.TestCase):
             a = hash_pandas_object(obj, index=True)
             b = hash_pandas_object(obj, index=False)
             if len(obj):
-                self.assertFalse((a == b).all())
+                assert not (a == b).all()
 
     def test_hash_tuples(self):
         tups = [(1, 'one'), (1, 'two'), (2, 'one')]
@@ -86,9 +86,9 @@ class TestHashing(tm.TestCase):
     def test_multiindex_unique(self):
         mi = MultiIndex.from_tuples([(118, 472), (236, 118),
                                      (51, 204), (102, 51)])
-        self.assertTrue(mi.is_unique)
+        assert mi.is_unique
         result = hash_pandas_object(mi)
-        self.assertTrue(result.is_unique)
+        assert result.is_unique
 
     def test_multiindex_objects(self):
         mi = MultiIndex(levels=[['b', 'd', 'a'], [1, 2, 3]],
@@ -215,7 +215,7 @@ class TestHashing(tm.TestCase):
         obj = Series(list('abc'))
         a = hash_pandas_object(obj, hash_key='9876543210123456')
         b = hash_pandas_object(obj, hash_key='9876543210123465')
-        self.assertTrue((a != b).all())
+        assert (a != b).all()
 
     def test_invalid_key(self):
         # this only matters for object dtypes
@@ -240,13 +240,13 @@ class TestHashing(tm.TestCase):
             length = 2**(l + 8) + 1
             s = tm.rands_array(length, 2)
             result = hash_array(s, 'utf8')
-            self.assertFalse(result[0] == result[1])
+            assert not result[0] == result[1]
 
         for l in range(8):
             length = 2**(l + 8)
             s = tm.rands_array(length, 2)
             result = hash_array(s, 'utf8')
-            self.assertFalse(result[0] == result[1])
+            assert not result[0] == result[1]
 
     def test_hash_collisions(self):
 

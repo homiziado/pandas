@@ -113,7 +113,7 @@ c,3
         # Series should not be a view
         data = """time,data\n0,10\n1,11\n2,12\n4,14\n5,15\n3,13"""
         result = self.read_csv(StringIO(data), index_col='time', squeeze=True)
-        self.assertFalse(result._is_view)
+        assert not result._is_view
 
     def test_malformed(self):
         # see gh-6607
@@ -693,7 +693,7 @@ bar"""
 1,3,3,
 1,4,5"""
         result = self.read_csv(StringIO(data))
-        self.assertTrue(result['D'].isnull()[1:].all())
+        assert result['D'].isnull()[1:].all()
 
     def test_skipinitialspace(self):
         s = ('"09-Apr-2012", "01:10:18.300", 2456026.548822908, 12849, '
@@ -707,7 +707,7 @@ bar"""
         # it's 33 columns
         result = self.read_csv(sfile, names=lrange(33), na_values=['-9999.0'],
                                header=None, skipinitialspace=True)
-        self.assertTrue(pd.isnull(result.iloc[0, 29]))
+        assert pd.isnull(result.iloc[0, 29])
 
     def test_utf16_bom_skiprows(self):
         # #2298
@@ -794,8 +794,8 @@ A,B,C
                                quotechar='"', encoding='utf-8')
         self.assertEqual(result['SEARCH_TERM'][2],
                          'SLAGBORD, "Bergslagen", IKEA:s 1700-tals serie')
-        self.assertTrue(np.array_equal(result.columns,
-                                       ['SEARCH_TERM', 'ACTUAL_URL']))
+        tm.assert_index_equal(result.columns,
+                              Index(['SEARCH_TERM', 'ACTUAL_URL']))
 
     def test_int64_min_issues(self):
         # #2599
@@ -831,7 +831,7 @@ A,B,C
                                           17007000002000192,
                                           17007000002000194]})
 
-        self.assertTrue(np.array_equal(result['Numbers'], expected['Numbers']))
+        assert np.array_equal(result['Numbers'], expected['Numbers'])
 
     def test_chunks_have_consistent_numerical_type(self):
         integers = [str(i) for i in range(499999)]
@@ -840,7 +840,7 @@ A,B,C
         with tm.assert_produces_warning(False):
             df = self.read_csv(StringIO(data))
         # Assert that types were coerced.
-        self.assertTrue(type(df.a[0]) is np.float64)
+        assert type(df.a[0]) is np.float64
         self.assertEqual(df.a.dtype, np.float)
 
     def test_warn_if_chunks_have_mismatched_type(self):
@@ -862,10 +862,10 @@ A,B,C
         data = "65248E10 11\n55555E55 22\n"
 
         result = self.read_csv(StringIO(data), header=None, sep=' ')
-        self.assertTrue(result[0].dtype == np.float64)
+        assert result[0].dtype == np.float64
 
         result = self.read_csv(StringIO(data), header=None, sep=r'\s+')
-        self.assertTrue(result[0].dtype == np.float64)
+        assert result[0].dtype == np.float64
 
     def test_catch_too_many_names(self):
         # see gh-5156
@@ -953,7 +953,7 @@ A,B,C
         # 13007854817840016671868 > UINT64_MAX, so this
         # will overflow and return object as the dtype.
         result = self.read_csv(StringIO(data))
-        self.assertTrue(result['ID'].dtype == object)
+        assert result['ID'].dtype == object
 
         # 13007854817840016671868 > UINT64_MAX, so attempts
         # to cast to either int64 or uint64 will result in
@@ -1656,11 +1656,11 @@ j,-inF"""
 
         fh = StringIO('a,b\n1,2')
         self.read_csv(fh)
-        self.assertFalse(fh.closed)
+        assert not fh.closed
 
         with open(self.csv1, 'r') as f:
             self.read_csv(f)
-            self.assertFalse(f.closed)
+            assert not f.closed
 
         # mmap not working with python engine
         if self.engine != 'python':
@@ -1671,7 +1671,7 @@ j,-inF"""
                 self.read_csv(m)
                 # closed attribute new in python 3.2
                 if PY3:
-                    self.assertFalse(m.closed)
+                    assert not m.closed
                 m.close()
 
     def test_invalid_file_buffer(self):
@@ -1684,6 +1684,26 @@ j,-inF"""
 
         with tm.assert_raises_regex(ValueError, msg):
             self.read_csv(InvalidBuffer())
+
+        # gh-16135: we want to ensure that "tell" and "seek"
+        # aren't actually being used when we call `read_csv`
+        #
+        # Thus, while the object may look "invalid" (these
+        # methods are attributes of the `StringIO` class),
+        # it is still a valid file-object for our purposes.
+        class NoSeekTellBuffer(StringIO):
+            def tell(self):
+                raise AttributeError("No tell method")
+
+            def seek(self, pos, whence=0):
+                raise AttributeError("No seek method")
+
+        data = "a\n1"
+
+        expected = pd.DataFrame({"a": [1]})
+        result = self.read_csv(NoSeekTellBuffer(data))
+
+        tm.assert_frame_equal(result, expected)
 
         if PY3:
             from unittest import mock

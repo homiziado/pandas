@@ -154,7 +154,7 @@ class TestDataFramePlots(TestPlotBase):
         with tm.assert_produces_warning(UserWarning):
             axes = _check_plot_works(df.hist, grid=False)
         self._check_axes_shape(axes, axes_num=3, layout=(2, 2))
-        self.assertFalse(axes[1, 1].get_visible())
+        assert not axes[1, 1].get_visible()
 
         df = DataFrame(randn(100, 1))
         _check_plot_works(df.hist)
@@ -394,12 +394,12 @@ class TestDataFrameGroupByPlots(TestPlotBase):
         ax1, ax2 = df.hist(column='height', by=df.gender, sharex=True)
 
         # share x
-        self.assertTrue(ax1._shared_x_axes.joined(ax1, ax2))
-        self.assertTrue(ax2._shared_x_axes.joined(ax1, ax2))
+        assert ax1._shared_x_axes.joined(ax1, ax2)
+        assert ax2._shared_x_axes.joined(ax1, ax2)
 
         # don't share y
-        self.assertFalse(ax1._shared_y_axes.joined(ax1, ax2))
-        self.assertFalse(ax2._shared_y_axes.joined(ax1, ax2))
+        assert not ax1._shared_y_axes.joined(ax1, ax2)
+        assert not ax2._shared_y_axes.joined(ax1, ax2)
 
     @slow
     def test_axis_share_y(self):
@@ -407,12 +407,12 @@ class TestDataFrameGroupByPlots(TestPlotBase):
         ax1, ax2 = df.hist(column='height', by=df.gender, sharey=True)
 
         # share y
-        self.assertTrue(ax1._shared_y_axes.joined(ax1, ax2))
-        self.assertTrue(ax2._shared_y_axes.joined(ax1, ax2))
+        assert ax1._shared_y_axes.joined(ax1, ax2)
+        assert ax2._shared_y_axes.joined(ax1, ax2)
 
         # don't share x
-        self.assertFalse(ax1._shared_x_axes.joined(ax1, ax2))
-        self.assertFalse(ax2._shared_x_axes.joined(ax1, ax2))
+        assert not ax1._shared_x_axes.joined(ax1, ax2)
+        assert not ax2._shared_x_axes.joined(ax1, ax2)
 
     @slow
     def test_axis_share_xy(self):
@@ -421,8 +421,8 @@ class TestDataFrameGroupByPlots(TestPlotBase):
                            sharey=True)
 
         # share both x and y
-        self.assertTrue(ax1._shared_x_axes.joined(ax1, ax2))
-        self.assertTrue(ax2._shared_x_axes.joined(ax1, ax2))
+        assert ax1._shared_x_axes.joined(ax1, ax2)
+        assert ax2._shared_x_axes.joined(ax1, ax2)
 
-        self.assertTrue(ax1._shared_y_axes.joined(ax1, ax2))
-        self.assertTrue(ax2._shared_y_axes.joined(ax1, ax2))
+        assert ax1._shared_y_axes.joined(ax1, ax2)
+        assert ax2._shared_y_axes.joined(ax1, ax2)

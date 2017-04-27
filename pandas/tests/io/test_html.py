@@ -168,7 +168,7 @@ class TestReadHtml(tm.TestCase, ReadHtmlMixin):
     def test_spam_header(self):
         df = self.read_html(self.spam_data, '.*Water.*', header=1)[0]
         self.assertEqual(df.columns[0], 'Proximates')
-        self.assertFalse(df.empty)
+        assert not df.empty
 
     def test_skiprows_int(self):
         df1 = self.read_html(self.spam_data, '.*Water.*', skiprows=1)
@@ -361,7 +361,7 @@ class TestReadHtml(tm.TestCase, ReadHtmlMixin):
     def test_multiple_matches(self):
         url = 'https://docs.python.org/2/'
         dfs = self.read_html(url, match='Python')
-        self.assertTrue(len(dfs) > 1)
+        assert len(dfs) > 1
 
     @network
     def test_python_docs_table(self):
@@ -378,7 +378,7 @@ class TestReadHtml(tm.TestCase, ReadHtmlMixin):
                              attrs={'class': 'style1'})
         df = dfs[all_non_nan_table_index]
 
-        self.assertFalse(any(s.isnull().any() for _, s in df.iteritems()))
+        assert not any(s.isnull().any() for _, s in df.iteritems())
 
     @tm.slow
     def test_thousands_macau_index_col(self):
@@ -387,7 +387,7 @@ class TestReadHtml(tm.TestCase, ReadHtmlMixin):
         dfs = self.read_html(macau_data, index_col=0, header=0)
         df = dfs[all_non_nan_table_index]
 
-        self.assertFalse(any(s.isnull().any() for _, s in df.iteritems()))
+        assert not any(s.isnull().any() for _, s in df.iteritems())
 
     def test_empty_tables(self):
         """

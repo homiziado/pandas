@@ -484,22 +484,22 @@ class TestSeriesMissingData(TestData, tm.TestCase):
         # nan ops on timedeltas
         td1 = td.copy()
         td1[0] = np.nan
-        self.assertTrue(isnull(td1[0]))
+        assert isnull(td1[0])
         self.assertEqual(td1[0].value, iNaT)
         td1[0] = td[0]
-        self.assertFalse(isnull(td1[0]))
+        assert not isnull(td1[0])
 
         td1[1] = iNaT
-        self.assertTrue(isnull(td1[1]))
+        assert isnull(td1[1])
         self.assertEqual(td1[1].value, iNaT)
         td1[1] = td[1]
-        self.assertFalse(isnull(td1[1]))
+        assert not isnull(td1[1])
 
         td1[2] = NaT
-        self.assertTrue(isnull(td1[2]))
+        assert isnull(td1[2])
         self.assertEqual(td1[2].value, iNaT)
         td1[2] = td[2]
-        self.assertFalse(isnull(td1[2]))
+        assert not isnull(td1[2])
 
         # boolean setting
         # this doesn't work, not sure numpy even supports it
@@ -552,7 +552,7 @@ class TestSeriesMissingData(TestData, tm.TestCase):
 
             result = s.dropna()
             tm.assert_series_equal(result, s)
-            self.assertFalse(result is s)
+            assert result is not s
 
             s2 = s.copy()
             s2.dropna(inplace=True)
@@ -599,7 +599,7 @@ class TestSeriesMissingData(TestData, tm.TestCase):
         expected = Series([np.nan, 1.0, 1.0, 3.0, 3.0],
                           ['z', 'a', 'b', 'c', 'd'], dtype=float)
         assert_series_equal(x[1:], expected[1:])
-        self.assertTrue(np.isnan(x[0]), np.isnan(expected[0]))
+        assert np.isnan(x[0]), np.isnan(expected[0])
 
     def test_pad_require_monotonicity(self):
         rng = date_range('1/1/2000', '3/1/2000', freq='B')

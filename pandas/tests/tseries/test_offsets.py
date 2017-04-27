@@ -221,11 +221,11 @@ class TestCommon(Base):
             assert isinstance(result, Timestamp)
 
             # make sure that we are returning NaT
-            self.assertTrue(NaT + offset is NaT)
-            self.assertTrue(offset + NaT is NaT)
+            assert NaT + offset is NaT
+            assert offset + NaT is NaT
 
-            self.assertTrue(NaT - offset is NaT)
-            self.assertTrue((-offset).apply(NaT) is NaT)
+            assert NaT - offset is NaT
+            assert (-offset).apply(NaT) is NaT
 
     def test_offset_n(self):
         for offset_klass in self.offset_types:
@@ -255,11 +255,11 @@ class TestCommon(Base):
         func = getattr(offset_s, funcname)
 
         result = func(dt)
-        self.assertTrue(isinstance(result, Timestamp))
+        assert isinstance(result, Timestamp)
         self.assertEqual(result, expected)
 
         result = func(Timestamp(dt))
-        self.assertTrue(isinstance(result, Timestamp))
+        assert isinstance(result, Timestamp)
         self.assertEqual(result, expected)
 
         # see gh-14101
@@ -275,7 +275,7 @@ class TestCommon(Base):
         with tm.assert_produces_warning(exp_warning,
                                         check_stacklevel=False):
             result = func(ts)
-        self.assertTrue(isinstance(result, Timestamp))
+        assert isinstance(result, Timestamp)
         if normalize is False:
             self.assertEqual(result, expected + Nano(5))
         else:
@@ -294,11 +294,11 @@ class TestCommon(Base):
             dt_tz = tslib._localize_pydatetime(dt, tz_obj)
 
             result = func(dt_tz)
-            self.assertTrue(isinstance(result, Timestamp))
+            assert isinstance(result, Timestamp)
             self.assertEqual(result, expected_localize)
 
             result = func(Timestamp(dt, tz=tz))
-            self.assertTrue(isinstance(result, Timestamp))
+            assert isinstance(result, Timestamp)
             self.assertEqual(result, expected_localize)
 
             # see gh-14101
@@ -314,7 +314,7 @@ class TestCommon(Base):
             with tm.assert_produces_warning(exp_warning,
                                             check_stacklevel=False):
                 result = func(ts)
-            self.assertTrue(isinstance(result, Timestamp))
+            assert isinstance(result, Timestamp)
             if normalize is False:
                 self.assertEqual(result, expected_localize + Nano(5))
             else:
@@ -442,18 +442,18 @@ class TestCommon(Base):
         for offset in self.offset_types:
             dt = self.expecteds[offset.__name__]
             offset_s = self._get_offset(offset)
-            self.assertTrue(offset_s.onOffset(dt))
+            assert offset_s.onOffset(dt)
 
             # when normalize=True, onOffset checks time is 00:00:00
             offset_n = self._get_offset(offset, normalize=True)
-            self.assertFalse(offset_n.onOffset(dt))
+            assert not offset_n.onOffset(dt)
 
             if offset in (BusinessHour, CustomBusinessHour):
                 # In default BusinessHour (9:00-17:00), normalized time
                 # cannot be in business hour range
                 continue
             date = datetime(dt.year, dt.month, dt.day)
-            self.assertTrue(offset_n.onOffset(date))
+            assert offset_n.onOffset(date)
 
     def test_add(self):
         dt = datetime(2011, 1, 1, 9, 0)
@@ -465,14 +465,14 @@ class TestCommon(Base):
             result_dt = dt + offset_s
             result_ts = Timestamp(dt) + offset_s
             for result in [result_dt, result_ts]:
-                self.assertTrue(isinstance(result, Timestamp))
+                assert isinstance(result, Timestamp)
                 self.assertEqual(result, expected)
 
             tm._skip_if_no_pytz()
             for tz in self.timezones:
                 expected_localize = expected.tz_localize(tz)
                 result = Timestamp(dt, tz=tz) + offset_s
-                self.assertTrue(isinstance(result, Timestamp))
+                assert isinstance(result, Timestamp)
                 self.assertEqual(result, expected_localize)
 
             # normalize=True
@@ -482,13 +482,13 @@ class TestCommon(Base):
             result_dt = dt + offset_s
             result_ts = Timestamp(dt) + offset_s
             for result in [result_dt, result_ts]:
-                self.assertTrue(isinstance(result, Timestamp))
+                assert isinstance(result, Timestamp)
                 self.assertEqual(result, expected)
 
             for tz in self.timezones:
                 expected_localize = expected.tz_localize(tz)
                 result = Timestamp(dt, tz=tz) + offset_s
-                self.assertTrue(isinstance(result, Timestamp))
+                assert isinstance(result, Timestamp)
                 self.assertEqual(result, expected_localize)
 
     def test_pickle_v0_15_2(self):
@@ -718,7 +718,7 @@ class TestBusinessDay(Base):
         # root cause of #456
         offset1 = BDay()
         offset2 = BDay()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
 
 class TestBusinessHour(Base):
@@ -1389,7 +1389,7 @@ class TestBusinessHour(Base):
         # root cause of #456
         offset1 = self._offset()
         offset2 = self._offset()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
     def test_datetimeindex(self):
         idx1 = DatetimeIndex(start='2014-07-04 15:00', end='2014-07-08 10:00',
@@ -1859,7 +1859,7 @@ class TestCustomBusinessDay(Base):
         # root cause of #456
         offset1 = CDay()
         offset2 = CDay()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
     def test_holidays(self):
         # Define a TradingDay offset
@@ -1964,7 +1964,7 @@ class CustomBusinessMonthBase(object):
     def test_offsets_compare_equal(self):
         offset1 = self._object()
         offset2 = self._object()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
     def test_roundtrip_pickle(self):
         def _check_roundtrip(obj):
@@ -2229,10 +2229,10 @@ class TestWeek(Base):
             ValueError, "Day must be", Week, weekday=-1)
 
     def test_isAnchored(self):
-        self.assertTrue(Week(weekday=0).isAnchored())
-        self.assertFalse(Week().isAnchored())
-        self.assertFalse(Week(2, weekday=2).isAnchored())
-        self.assertFalse(Week(2).isAnchored())
+        assert Week(weekday=0).isAnchored()
+        assert not Week().isAnchored()
+        assert not Week(2, weekday=2).isAnchored()
+        assert not Week(2).isAnchored()
 
     def test_offset(self):
         tests = []
@@ -2284,7 +2284,7 @@ class TestWeek(Base):
         # root cause of #456
         offset1 = Week()
         offset2 = Week()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
 
 class TestWeekOfMonth(Base):
@@ -2507,7 +2507,7 @@ class TestBMonthBegin(Base):
         # root cause of #456
         offset1 = BMonthBegin()
         offset2 = BMonthBegin()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
 
 class TestBMonthEnd(Base):
@@ -2570,7 +2570,7 @@ class TestBMonthEnd(Base):
         # root cause of #456
         offset1 = BMonthEnd()
         offset2 = BMonthEnd()
-        self.assertFalse(offset1 != offset2)
+        assert not offset1 != offset2
 
 
 class TestMonthBegin(Base):
@@ -3041,9 +3041,9 @@ class TestBQuarterBegin(Base):
                          "<BusinessQuarterBegin: startingMonth=1>")
 
     def test_isAnchored(self):
-        self.assertTrue(BQuarterBegin(startingMonth=1).isAnchored())
-        self.assertTrue(BQuarterBegin().isAnchored())
-        self.assertFalse(BQuarterBegin(2, startingMonth=1).isAnchored())
+        assert BQuarterBegin(startingMonth=1).isAnchored()
+        assert BQuarterBegin().isAnchored()
+        assert not BQuarterBegin(2, startingMonth=1).isAnchored()
 
     def test_offset(self):
         tests = []
@@ -3135,9 +3135,9 @@ class TestBQuarterEnd(Base):
                          "<BusinessQuarterEnd: startingMonth=1>")
 
     def test_isAnchored(self):
-        self.assertTrue(BQuarterEnd(startingMonth=1).isAnchored())
-        self.assertTrue(BQuarterEnd().isAnchored())
-        self.assertFalse(BQuarterEnd(2, startingMonth=1).isAnchored())
+        assert BQuarterEnd(startingMonth=1).isAnchored()
+        assert BQuarterEnd().isAnchored()
+        assert not BQuarterEnd(2, startingMonth=1).isAnchored()
 
     def test_offset(self):
         tests = []
@@ -3506,15 +3506,15 @@ class TestFY5253NearestEndMonth(Base):
 class TestFY5253LastOfMonthQuarter(Base):
 
     def test_isAnchored(self):
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(startingMonth=1, weekday=WeekDay.SAT,
-                                         qtr_with_extra_week=4).isAnchored())
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(weekday=WeekDay.SAT, startingMonth=3,
-                                         qtr_with_extra_week=4).isAnchored())
-        self.assertFalse(makeFY5253LastOfMonthQuarter(
+        assert makeFY5253LastOfMonthQuarter(
+            startingMonth=1, weekday=WeekDay.SAT,
+            qtr_with_extra_week=4).isAnchored()
+        assert makeFY5253LastOfMonthQuarter(
+            weekday=WeekDay.SAT, startingMonth=3,
+            qtr_with_extra_week=4).isAnchored()
+        assert not makeFY5253LastOfMonthQuarter(
             2, startingMonth=1, weekday=WeekDay.SAT,
-            qtr_with_extra_week=4).isAnchored())
+            qtr_with_extra_week=4).isAnchored()
 
     def test_equality(self):
         self.assertEqual(makeFY5253LastOfMonthQuarter(startingMonth=1,
@@ -3662,53 +3662,40 @@ class TestFY5253LastOfMonthQuarter(Base):
 
     def test_year_has_extra_week(self):
         # End of long Q1
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(1, startingMonth=12,
-                                         weekday=WeekDay.SAT,
-                                         qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(2011, 4, 2)))
+        assert makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(2011, 4, 2))
 
         # Start of long Q1
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(
-                1, startingMonth=12, weekday=WeekDay.SAT,
-                qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(2010, 12, 26)))
+        assert makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(2010, 12, 26))
 
         # End of year before year with long Q1
-        self.assertFalse(
-            makeFY5253LastOfMonthQuarter(
-                1, startingMonth=12, weekday=WeekDay.SAT,
-                qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(2010, 12, 25)))
+        assert not makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(2010, 12, 25))
 
         for year in [x
                      for x in range(1994, 2011 + 1)
                      if x not in [2011, 2005, 2000, 1994]]:
-            self.assertFalse(
-                makeFY5253LastOfMonthQuarter(
-                    1, startingMonth=12, weekday=WeekDay.SAT,
-                    qtr_with_extra_week=1)
-                .year_has_extra_week(datetime(year, 4, 2)))
+            assert not makeFY5253LastOfMonthQuarter(
+                1, startingMonth=12, weekday=WeekDay.SAT,
+                qtr_with_extra_week=1).year_has_extra_week(
+                datetime(year, 4, 2))
 
         # Other long years
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(
-                1, startingMonth=12, weekday=WeekDay.SAT,
-                qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(2005, 4, 2)))
+        assert makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(2005, 4, 2))
 
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(
-                1, startingMonth=12, weekday=WeekDay.SAT,
-                qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(2000, 4, 2)))
+        assert makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(2000, 4, 2))
 
-        self.assertTrue(
-            makeFY5253LastOfMonthQuarter(
-                1, startingMonth=12, weekday=WeekDay.SAT,
-                qtr_with_extra_week=1)
-            .year_has_extra_week(datetime(1994, 4, 2)))
+        assert makeFY5253LastOfMonthQuarter(
+            1, startingMonth=12, weekday=WeekDay.SAT,
+            qtr_with_extra_week=1).year_has_extra_week(datetime(1994, 4, 2))
 
     def test_get_weeks(self):
         sat_dec_1 = makeFY5253LastOfMonthQuarter(1, startingMonth=12,
@@ -3823,9 +3810,9 @@ class TestQuarterBegin(Base):
                          "<QuarterBegin: startingMonth=1>")
 
     def test_isAnchored(self):
-        self.assertTrue(QuarterBegin(startingMonth=1).isAnchored())
-        self.assertTrue(QuarterBegin().isAnchored())
-        self.assertFalse(QuarterBegin(2, startingMonth=1).isAnchored())
+        assert QuarterBegin(startingMonth=1).isAnchored()
+        assert QuarterBegin().isAnchored()
+        assert not QuarterBegin(2, startingMonth=1).isAnchored()
 
     def test_offset(self):
         tests = []
@@ -3901,9 +3888,9 @@ class TestQuarterEnd(Base):
                          "<QuarterEnd: startingMonth=1>")
 
     def test_isAnchored(self):
-        self.assertTrue(QuarterEnd(startingMonth=1).isAnchored())
-        self.assertTrue(QuarterEnd().isAnchored())
-        self.assertFalse(QuarterEnd(2, startingMonth=1).isAnchored())
+        assert QuarterEnd(startingMonth=1).isAnchored()
+        assert QuarterEnd().isAnchored()
+        assert not QuarterEnd(2, startingMonth=1).isAnchored()
 
     def test_offset(self):
         tests = []
@@ -4401,7 +4388,7 @@ class TestTicks(tm.TestCase):
         for kls, expected in offsets:
             offset = kls(3)
             result = offset + Timedelta(hours=2)
-            self.assertTrue(isinstance(result, Timedelta))
+            assert isinstance(result, Timedelta)
             self.assertEqual(result, expected)
 
     def test_Hour(self):
@@ -4527,7 +4514,7 @@ class TestTicks(tm.TestCase):
 
     def test_tick_offset(self):
         for t in self.ticks:
-            self.assertFalse(t().isAnchored())
+            assert not t().isAnchored()
 
     def test_compare_ticks(self):
         for kls in self.ticks:
@@ -4535,12 +4522,12 @@ class TestTicks(tm.TestCase):
             four = kls(4)
 
             for _ in range(10):
-                self.assertTrue(three < kls(4))
-                self.assertTrue(kls(3) < four)
-                self.assertTrue(four > kls(3))
-                self.assertTrue(kls(4) > three)
-                self.assertTrue(kls(3) == kls(3))
-                self.assertTrue(kls(3) != kls(4))
+                assert three < kls(4)
+                assert kls(3) < four
+                assert four > kls(3)
+                assert kls(4) > three
+                assert kls(3) == kls(3)
+                assert kls(3) != kls(4)
 
 
 class TestOffsetNames(tm.TestCase):
@@ -4703,7 +4690,7 @@ class TestOffsetAliases(tm.TestCase):
         lst = ['M', 'D', 'B', 'H', 'T', 'S', 'L', 'U']
         for k in lst:
             code, stride = get_freq_code('3' + k)
-            self.assertTrue(isinstance(code, int))
+            assert isinstance(code, int)
             self.assertEqual(stride, 3)
             self.assertEqual(k, _get_freq_str(code))
 
@@ -4758,23 +4745,23 @@ class TestCaching(tm.TestCase):
     def run_X_index_creation(self, cls):
         inst1 = cls()
         if not inst1.isAnchored():
-            self.assertFalse(inst1._should_cache(), cls)
+            assert not inst1._should_cache(), cls
             return
 
-        self.assertTrue(inst1._should_cache(), cls)
+        assert inst1._should_cache(), cls
 
         DatetimeIndex(start=datetime(2013, 1, 31), end=datetime(2013, 3, 31),
                       freq=inst1, normalize=True)
-        self.assertTrue(cls() in _daterange_cache, cls)
+        assert cls() in _daterange_cache, cls
 
     def test_should_cache_month_end(self):
-        self.assertFalse(MonthEnd()._should_cache())
+        assert not MonthEnd()._should_cache()
 
     def test_should_cache_bmonth_end(self):
-        self.assertFalse(BusinessMonthEnd()._should_cache())
+        assert not BusinessMonthEnd()._should_cache()
 
     def test_should_cache_week_month(self):
-        self.assertFalse(WeekOfMonth(weekday=1, week=2)._should_cache())
+        assert not WeekOfMonth(weekday=1, week=2)._should_cache()
 
     def test_all_cacheableoffsets(self):
         for subclass in get_all_subclasses(CacheableOffset):
@@ -4786,19 +4773,19 @@ class TestCaching(tm.TestCase):
     def test_month_end_index_creation(self):
         DatetimeIndex(start=datetime(2013, 1, 31), end=datetime(2013, 3, 31),
                       freq=MonthEnd(), normalize=True)
-        self.assertFalse(MonthEnd() in _daterange_cache)
+        assert not MonthEnd() in _daterange_cache
 
     def test_bmonth_end_index_creation(self):
         DatetimeIndex(start=datetime(2013, 1, 31), end=datetime(2013, 3, 29),
                       freq=BusinessMonthEnd(), normalize=True)
-        self.assertFalse(BusinessMonthEnd() in _daterange_cache)
+        assert not BusinessMonthEnd() in _daterange_cache
 
     def test_week_of_month_index_creation(self):
         inst1 = WeekOfMonth(weekday=1, week=2)
         DatetimeIndex(start=datetime(2013, 1, 31), end=datetime(2013, 3, 29),
                       freq=inst1, normalize=True)
         inst2 = WeekOfMonth(weekday=1, week=2)
-        self.assertFalse(inst2 in _daterange_cache)
+        assert inst2 not in _daterange_cache
 
 
 class TestReprNames(tm.TestCase):
@@ -4862,34 +4849,34 @@ class TestDST(tm.TestCase):
 
         t = tstart + offset
         if expected_utc_offset is not None:
-            self.assertTrue(get_utc_offset_hours(t) == expected_utc_offset)
+            assert get_utc_offset_hours(t) == expected_utc_offset
 
         if offset_name == 'weeks':
             # dates should match
-            self.assertTrue(t.date() == timedelta(days=7 * offset.kwds[
-                'weeks']) + tstart.date())
+            assert t.date() == timedelta(days=7 * offset.kwds[
+                'weeks']) + tstart.date()
             # expect the same day of week, hour of day, minute, second, ...
-            self.assertTrue(t.dayofweek == tstart.dayofweek and t.hour ==
-                            tstart.hour and t.minute == tstart.minute and
-                            t.second == tstart.second)
+            assert (t.dayofweek == tstart.dayofweek and
+                    t.hour == tstart.hour and
+                    t.minute == tstart.minute and
+                    t.second == tstart.second)
         elif offset_name == 'days':
             # dates should match
-            self.assertTrue(timedelta(offset.kwds['days']) + tstart.date() ==
-                            t.date())
+            assert timedelta(offset.kwds['days']) + tstart.date() == t.date()
             # expect the same hour of day, minute, second, ...
-            self.assertTrue(t.hour == tstart.hour and
-                            t.minute == tstart.minute and
-                            t.second == tstart.second)
+            assert (t.hour == tstart.hour and
+                    t.minute == tstart.minute and
+                    t.second == tstart.second)
         elif offset_name in self.valid_date_offsets_singular:
             # expect the signular offset value to match between tstart and t
             datepart_offset = getattr(t, offset_name
                                       if offset_name != 'weekday' else
                                       'dayofweek')
-            self.assertTrue(datepart_offset == offset.kwds[offset_name])
+            assert datepart_offset == offset.kwds[offset_name]
         else:
             # the offset should be the same as if it was done in UTC
-            self.assertTrue(t == (tstart.tz_convert('UTC') + offset
-                                  ).tz_convert('US/Pacific'))
+            assert (t == (tstart.tz_convert('UTC') + offset)
+                    .tz_convert('US/Pacific'))
 
     def _make_timestamp(self, string, hrs_offset, tz):
         if hrs_offset >= 0:

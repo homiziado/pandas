@@ -443,8 +443,8 @@ class TestSeriesPlots(TestPlotBase):
         # both legends are dran on left ax
         # left and right axis must be visible
         self._check_legend_labels(ax, labels=['a', 'b (right)'])
-        self.assertTrue(ax.get_yaxis().get_visible())
-        self.assertTrue(ax.right_ax.get_yaxis().get_visible())
+        assert ax.get_yaxis().get_visible()
+        assert ax.right_ax.get_yaxis().get_visible()
         tm.close()
 
         # secondary -> secondary
@@ -454,8 +454,8 @@ class TestSeriesPlots(TestPlotBase):
         # left axis must be invisible, right axis must be visible
         self._check_legend_labels(ax.left_ax,
                                   labels=['a (right)', 'b (right)'])
-        self.assertFalse(ax.left_ax.get_yaxis().get_visible())
-        self.assertTrue(ax.get_yaxis().get_visible())
+        assert not ax.left_ax.get_yaxis().get_visible()
+        assert ax.get_yaxis().get_visible()
         tm.close()
 
         # secondary -> primary
@@ -465,8 +465,8 @@ class TestSeriesPlots(TestPlotBase):
         # both legends are draw on left ax
         # left and right axis must be visible
         self._check_legend_labels(ax.left_ax, labels=['a (right)', 'b'])
-        self.assertTrue(ax.left_ax.get_yaxis().get_visible())
-        self.assertTrue(ax.get_yaxis().get_visible())
+        assert ax.left_ax.get_yaxis().get_visible()
+        assert ax.get_yaxis().get_visible()
         tm.close()
 
     @slow
@@ -481,8 +481,8 @@ class TestSeriesPlots(TestPlotBase):
         # both legends are dran on left ax
         # left and right axis must be visible
         self._check_legend_labels(ax, labels=['a', 'b', 'c', 'x (right)'])
-        self.assertTrue(ax.get_yaxis().get_visible())
-        self.assertTrue(ax.right_ax.get_yaxis().get_visible())
+        assert ax.get_yaxis().get_visible()
+        assert ax.right_ax.get_yaxis().get_visible()
         tm.close()
 
         # primary -> secondary (with passing ax)
@@ -491,8 +491,8 @@ class TestSeriesPlots(TestPlotBase):
         # both legends are dran on left ax
         # left and right axis must be visible
         self._check_legend_labels(ax, labels=['a', 'b', 'c', 'x (right)'])
-        self.assertTrue(ax.get_yaxis().get_visible())
-        self.assertTrue(ax.right_ax.get_yaxis().get_visible())
+        assert ax.get_yaxis().get_visible()
+        assert ax.right_ax.get_yaxis().get_visible()
         tm.close()
 
         # seconcary -> secondary (without passing ax)
@@ -502,8 +502,8 @@ class TestSeriesPlots(TestPlotBase):
         # left axis must be invisible and right axis must be visible
         expected = ['a (right)', 'b (right)', 'c (right)', 'x (right)']
         self._check_legend_labels(ax.left_ax, labels=expected)
-        self.assertFalse(ax.left_ax.get_yaxis().get_visible())
-        self.assertTrue(ax.get_yaxis().get_visible())
+        assert not ax.left_ax.get_yaxis().get_visible()
+        assert ax.get_yaxis().get_visible()
         tm.close()
 
         # secondary -> secondary (with passing ax)
@@ -513,8 +513,8 @@ class TestSeriesPlots(TestPlotBase):
         # left axis must be invisible and right axis must be visible
         expected = ['a (right)', 'b (right)', 'c (right)', 'x (right)']
         self._check_legend_labels(ax.left_ax, expected)
-        self.assertFalse(ax.left_ax.get_yaxis().get_visible())
-        self.assertTrue(ax.get_yaxis().get_visible())
+        assert not ax.left_ax.get_yaxis().get_visible()
+        assert ax.get_yaxis().get_visible()
         tm.close()
 
         # secondary -> secondary (with passing ax)
@@ -524,8 +524,8 @@ class TestSeriesPlots(TestPlotBase):
         # left axis must be invisible and right axis must be visible
         expected = ['a', 'b', 'c', 'x (right)']
         self._check_legend_labels(ax.left_ax, expected)
-        self.assertFalse(ax.left_ax.get_yaxis().get_visible())
-        self.assertTrue(ax.get_yaxis().get_visible())
+        assert not ax.left_ax.get_yaxis().get_visible()
+        assert ax.get_yaxis().get_visible()
         tm.close()
 
     @slow
@@ -576,10 +576,9 @@ class TestSeriesPlots(TestPlotBase):
         s = Series(np.random.uniform(size=50))
         s[0] = np.nan
         axes = _check_plot_works(s.plot.kde)
-        # check if the values have any missing values
-        # GH14821
-        self.assertTrue(any(~np.isnan(axes.lines[0].get_xdata())),
-                        msg='Missing Values not dropped')
+
+        # gh-14821: check if the values have any missing values
+        assert any(~np.isnan(axes.lines[0].get_xdata()))
 
     @slow
     def test_hist_kwargs(self):
